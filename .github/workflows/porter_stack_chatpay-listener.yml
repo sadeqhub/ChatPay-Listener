@@ -1,5 +1,10 @@
 # Auto-deploy to Porter on push to main.
-# Add repo secret: PORTER_APP_12884_4188 (Porter dashboard → CI/CD / GitHub Actions token).
+#
+# Required GitHub secret (exact name): PORTER_APP_12884_4188
+# Create it from Porter: open app → Settings / Integrations / GitHub Actions (wording varies)
+# → generate or copy the deploy token → GitHub repo → Settings → Secrets and variables → Actions.
+# If Porter shows a different secret name (e.g. PORTER_STACK_12884_4188), change both the
+# secret name in GitHub and the `secrets.*` reference below to match.
 
 name: Deploy to Porter
 
@@ -12,6 +17,12 @@ jobs:
   porter-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Require Porter token secret
+        if: ${{ secrets.PORTER_APP_12884_4188 == '' }}
+        run: |
+          echo "::error::Missing GitHub Actions secret PORTER_APP_12884_4188. Porter prints a suggested secret name when you connect CI—add that token under Settings → Secrets → Actions with the exact name, then re-run this workflow."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 
