@@ -1,0 +1,1181 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DB_URL")
+}
+
+// Dual-Schema Account model - supports both NextAuth and Better Auth
+
+model Account {
+  id     String @id @default(cuid())
+  userId String
+
+  // NextAuth columns (keep existing for backward compatibility)
+  type               String?
+  provider           String?
+  providerAccountId  String?
+  access_token       String?
+  refresh_token      String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+  oauth_token_secret String?
+  oauth_token        String?
+
+  // Better Auth columns (new)
+  providerId            String?
+  accountId             String?
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  idToken               String?
+  password              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Keep NextAuth unique constraint for backward compatibility
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// Dual-Schema Session model - supports both NextAuth and Better Auth
+
+model Session {
+  id     String @id @default(cuid())
+  userId String
+
+  // NextAuth columns (keep existing for backward compatibility)
+  sessionToken String?   @unique
+  expires      DateTime?
+
+  // Better Auth columns (new)
+  token     String?   @unique
+  expiresAt DateTime?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Dual-Schema User model - supports both NextAuth and Better Auth
+
+model User {
+  id    String  @id @default(cuid())
+  name  String?
+  email String? @unique
+  image String?
+
+  // NextAuth column (keep existing for backward compatibility)
+  // DateTime when email was verified, null if not verified
+  emailVerified DateTime?
+
+  // Better Auth column (new)
+  // Boolean flag for email verification status
+  emailVerifiedBool Boolean @default(false)
+
+  // Custom fields
+  activeStore String?
+  parent      String?
+
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  accounts             Account[]
+  kycForm              KYCForm?
+  Order                Order[]
+  Payout               Payout[]
+  products             Product[]
+  PromoCodes           PromoCodes[]
+  Refund               Refund[]
+  sessions             Session[]
+  tags                 Tag[]
+  Webhook              Webhook[]
+  customers            Customer[]                  @relation("CustomerToUser")
+  stores               Store[]                     @relation("StoreToUser")
+  Integration          Integration[]
+  MerchantTransactions MerchantWalletTransaction[]
+  waylInvoice          WaylInvoice?
+  payoutAccounts       PayoutAccount[]
+  conversations        Conversation[]
+  messages             Message[]
+  channelAccounts      ChannelAccount[]
+}
+
+// NextAuth - VerificationToken model (keep existing for backward compatibility)
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Better Auth - Verification model for email verification, magic links, OTP
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Store {
+  id                           String                      @id @default(cuid())
+  createdAt                    DateTime                    @default(now())
+  updatedAt                    DateTime                    @updatedAt
+  title                        String                      @unique
+  name                         String?
+  content                      String?
+  passport                     String?
+  civilID                      String?
+  civilIDBack                  String?
+  residency                    String?
+  residencyBack                String?
+  timezone                     String?
+  country                      String?
+  supportEmail                 String?
+  logo                         String?
+  cover                        String?
+  city                         String
+  analytics                    Json?
+  currencyId                   String
+  deleted                      Boolean?
+  includeDeliveryFeesWithTotal Boolean                     @default(true)
+  deliveries                   Json[]
+  processorFeesOn              String                      @default("merchant")
+  supportsAmwal                Boolean                     @default(true)
+  supportsCOD                  Boolean                     @default(true)
+  supportsQiCard               Boolean                     @default(true)
+  supportsStripe               Boolean                     @default(true)
+  supportsSwitch               Boolean                     @default(true)
+  supportsZainCash             Boolean                     @default(true)
+  supportsAsiaPay              Boolean                     @default(false)
+  waylFessOn                   String                      @default("merchant")
+  favicon                      String?
+  noDeliveryFees               Boolean?                    @default(false)
+  hidden                       Boolean                     @default(false)
+  hideDeliveryFees             Boolean                     @default(false)
+  bankAccount                  String?
+  zaincashAccount              String?
+  supportPhone                 String?
+  phone                        String?
+  iban                         String?
+  facebookPixel                String?
+  metaConverstionAPIToken      String?
+  snapPixel                    String?
+  tiktokPixel                  String?
+  fees                         Json?
+  policies                     Json?
+  socialLinks                  Json?
+  status                       String?
+  timeline                     Json[]                      @default([])
+  charity                      Boolean                     @default(false)
+  verificationStatus           VerificationStatus          @default(NothingUploaded)
+  address                      String?
+  paymentProfileId             String?
+  preferredPayoutMethod        PreferredPayoutMethod       @default(ZainCash)
+  payoutProfileId              String?
+  webhookActivated             Boolean                     @default(false)
+  customDomain                 String?
+  supportsFastPay              Boolean                     @default(true)
+  deliveriesInternational      Json[]
+  internationalDeliveryCost    String?                     @default("0")
+  localCustomersOnly           Boolean                     @default(true)
+  supportsAreeba               Boolean                     @default(true)
+  supportsCards                Boolean                     @default(true)
+  supportsFIB                  Boolean                     @default(true)
+  supportsNassWallet           Boolean                     @default(true)
+  supportsTaif                 Boolean                     @default(true)
+  preferredLangugag            Language                    @default(English)
+  ibanName                     String?
+  alwaseetIsConnected          Boolean?                    @default(false)
+  alwaseetPassword             String?
+  alwaseetUsername             String?
+  boxyIsConnected              Boolean?                    @default(false)
+  boxyPassword                 String?
+  boxyUsername                 String?
+  kycForm                      KYCForm?
+  Order                        Order[]
+  Payout                       Payout[]
+  products                     Product[]
+  PromoCodes                   PromoCodes[]
+  Refund                       Refund[]
+  currency                     Currency                    @relation(fields: [currencyId], references: [id])
+  paymentProfile               PaymentProfile?             @relation(fields: [paymentProfileId], references: [id])
+  payoutProfile                PayoutProfile?              @relation(fields: [payoutProfileId], references: [id])
+  tags                         Tag[]
+  Webhook                      Webhook[]
+  customers                    Customer[]                  @relation("CustomerToStore")
+  users                        User[]                      @relation("StoreToUser")
+  Integration                  Integration[]
+  MerchantWalletTransaction    MerchantWalletTransaction[]
+  subscriptions                Subscription[]
+  businessType                 String?
+  theme                        String                      @default("standard")
+  usage                        UsageEnum                   @default(Store)
+  riskProfile                  RiskProfileEnum             @default(Low)
+  clarityId                    String?
+  waylInvoice                  WaylInvoice?
+  waylSubscriptions            WaylSubscription[]
+  payoutAccounts               PayoutAccount[]
+
+  preferredPayoutSchedule PayoutScheduleEnum @default(OnSchedule)
+  payoutCutoff            Int?
+
+  botContext      Json?            @default("{}")
+  conversations   Conversation[]
+  messages        Message[]
+  channelAccounts ChannelAccount[]
+}
+
+enum PayoutScheduleEnum {
+  OnSchedule
+  OnDemand
+}
+
+enum UsageEnum {
+  API
+  Store
+}
+
+model KYCForm {
+  id                              String        @id @default(cuid())
+  createdAt                       DateTime      @default(now())
+  updatedAt                       DateTime      @updatedAt
+  fullname                        String?
+  mother_name                     String?
+  birthdate                       String?
+  birthplace                      String?
+  nationality                     String?
+  gender                          String?
+  personal_phone_number           String?
+  personal_email                  String?
+  home_address                    String?
+  business_name                   String?
+  business_phone_number           String?
+  business_email                  String?
+  business_address                String?
+  business_type                   String?
+  business_website                String?
+  business_tax_number             String?
+  passport_number                 String?
+  passport_expiry                 String?
+  passport_issue_date             String?
+  residency_expiry                String?
+  residency_issue_date            String?
+  bankname                        String?
+  bank_account_number             String?
+  bank_swift_code                 String?
+  bank_account_type               String?
+  nobank_account                  Boolean?
+  storeId                         String        @unique
+  userId                          String        @unique
+  attachment_agreement_signed     String?
+  attachment_business_certificate String?
+  attachment_civil                String?
+  attachment_civil_back           String?
+  attachment_kyc_form_signed      String?
+  attachment_passport             String?
+  attachment_residency            String?
+  attachment_residency_back       String?
+  business_certificate_expiry     String?
+  business_certificate_issue_date String?
+  business_certificate_number     String?
+  business_registration_type      String?
+  civil_expiry                    String?
+  civil_issue_date                String?
+  civil_number                    String?
+  residency_number                String?
+  metadata                        Json?
+  status                          KYCFormStatus @default(Pending)
+  store                           Store         @relation(fields: [storeId], references: [id])
+  user                            User          @relation(fields: [userId], references: [id])
+
+  businessDescription String?
+  attachments         Json[]
+  adminReviewStatus   ReviewStatusEnum @default(Pending)
+  riskProfile         RiskProfileEnum  @default(Low)
+
+  firstName String?
+  lastName  String?
+  surName   String?
+}
+
+enum ReviewStatusEnum {
+  Pending
+  Approved
+  Rejected
+}
+
+enum RiskProfileEnum {
+  High
+  Medium
+  Low
+}
+
+model Product {
+  id                      String              @id @default(cuid())
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  title                   String
+  content                 String?
+  price                   Int
+  cost                    Int
+  qt                      Int
+  unlimited               Boolean
+  notifyOn                Int
+  sku                     String
+  hasVariation            Boolean?
+  storeId                 String
+  deleted                 Boolean             @default(false)
+  active                  Boolean             @default(true)
+  outofstock              Boolean             @default(false)
+  inventories             Json[]
+  images                  Json[]
+  optionTemplate          Json[]
+  userId                  String?
+  tagId                   String?
+  status                  String              @default("Visible")
+  customFeilds            Json[]
+  discountType            String              @default("%")
+  discountExpiry          String?
+  discountValue           String              @default("0")
+  type                    ProductType         @default(Physical)
+  downloadable            String?
+  store                   Store               @relation(fields: [storeId], references: [id])
+  tag                     Tag?                @relation(fields: [tagId], references: [id])
+  user                    User?               @relation(fields: [userId], references: [id])
+  subscriptionPeriod      SubscriptionPeriod?
+  subscriptions           Subscription[]
+  gracePeriod             Int?
+  pausedSubscription      Boolean?            @default(false)
+  subscriptionRedirectUrl String?
+}
+
+enum SubscriptionPeriod {
+  Daily
+  Weekly
+  Monthly
+  Yearly
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  value     String    @default("value")
+  label     String    @default("label")
+  content   String?
+  storeId   String
+  userId    String?
+  index     Int?      @default(0)
+  products  Product[]
+  icon      String?
+  cover     String?
+  store     Store     @relation(fields: [storeId], references: [id])
+  user      User?     @relation(fields: [userId], references: [id])
+}
+
+model Currency {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  title     String
+  code      String
+  symbol    String
+  stores    Store[]
+}
+
+model Customer {
+  id            String             @id @default(cuid())
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  name          String?
+  phone         String?            @unique
+  email         String?            @unique
+  addressId     String?
+  shortcode     String?
+  address       Address?           @relation(fields: [addressId], references: [id])
+  sessions      CustomerSessions[]
+  Order         Order[]
+  Refund        Refund[]
+  promocodes    PromoCodes[]       @relation("CustomerToPromoCodes")
+  stores        Store[]            @relation("CustomerToStore")
+  users         User[]             @relation("CustomerToUser")
+  tokens        CardToken[]
+  subscriptions Subscription[]
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  webhookUrl String
+  secret     String
+  storeId    String
+  userId     String
+  extra      String
+  store      Store    @relation(fields: [storeId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model CustomerSessions {
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  token      String    @unique
+  maxAge     Int
+  customerId String?
+  Customer   Customer? @relation(fields: [customerId], references: [id])
+}
+
+model Admin {
+  id        String          @id @default(cuid())
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  name      String?
+  phone     String?         @unique
+  shortcode String?
+  sessions  AdminSessions[]
+}
+
+model AdminSessions {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  token     String   @unique
+  maxAge    Int
+  adminId   String?
+  Admin     Admin?   @relation(fields: [adminId], references: [id])
+}
+
+model Address {
+  id        String     @id @default(cuid())
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  address   String?
+  city      String?
+  country   String?
+  landmark  String?
+  district  String?
+  email     String?
+  phone     String?
+  name      String?
+  customer  Customer[]
+}
+
+model Order {
+  id                          String           @id @default(cuid())
+  createdAt                   DateTime         @default(now())
+  updatedAt                   DateTime         @updatedAt
+  referenceNumber             Int              @unique @default(autoincrement())
+  customerId                  String?
+  items                       Json[]
+  storeId                     String
+  timeline                    Json[]
+  userId                      String?
+  paymentMethod               String?
+  code                        String?          @unique
+  status                      String?
+  discount                    String?          @default("0")
+  discountType                String?          @default("%")
+  note                        String?
+  paymentGatewayTransactionID String?
+  settled                     Boolean          @default(false)
+  payoutId                    String?
+  address                     Json?
+  city                        String?
+  content                     String?
+  paymentMethods              String[]         @default(["Cards", "ZainCash", "Cash", "QiCard"])
+  paymentStatus               String?
+  paymentType                 String?
+  title                       String?
+  type                        String           @default("Order")
+  fundHandledByOrganization   Boolean          @default(true)
+  customerNotified            Boolean          @default(false)
+  deliveryCost                Int              @default(0)
+  includeDeliveryCost         Boolean          @default(true)
+  completedAt                 DateTime?
+  promocode                   Json?
+  digital                     Boolean?         @default(false)
+  merchantNotified            Boolean          @default(false)
+  comission                   Int?
+  linkExpiresIn               String           @default("1h")
+  notePlaceholder             String?
+  paymentProfile              Json?
+  payoutProfile               Json?
+  total                       Int
+  intention                   Json             @default("{}")
+  metadata                    Json             @default("{}")
+  amountPaidOnGateway         Int?
+  read                        Boolean?
+  discountAmount              Int?
+  promocodeDiscountAmount     Int?
+  subtotal                    Int?
+  customersAddress            String?
+  customersName               String?
+  customersPhone              String?
+  paymentProcessor            String?
+  policy                      Json?
+  policyId                    String?
+  customer                    Customer?        @relation(fields: [customerId], references: [id])
+  Payout                      Payout?          @relation(fields: [payoutId], references: [id])
+  store                       Store            @relation(fields: [storeId], references: [id])
+  User                        User?            @relation(fields: [userId], references: [id])
+  Refund                      Refund[]
+  referenceId                 String?
+  webhookUrl                  String?
+  webhookSecret               String?
+  redirectionUrl              String?
+  deliveryAgent               String?
+  source                      SourceEnum?
+  refunded                    Boolean?         @default(false)
+  waylProduct                 WaylProductEnum?
+  invalidated                 Boolean?         @default(false)
+  webhookStatus               WebhookStatus?   @default(not_sent)
+  webhookRetryCount           Int?             @default(0)
+  webhookFailureReason        String?
+  webhookLastAttemptAt        DateTime?
+  attempts                    Attempt[]
+  test                        Boolean?         @default(false)
+  senderId                    String?
+}
+
+enum WebhookStatus {
+  not_sent
+  success
+  failed
+  processing
+}
+
+enum WaylProductEnum {
+  FullPaymentLink
+  Invoice
+  StoreFront
+  API
+  Subscription
+  Record
+  Bot
+}
+
+model Payout {
+  id             String        @id @default(cuid())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  amount         String
+  currency       String        @default("IQD")
+  storeId        String
+  userId         String
+  note           String?
+  account        String?
+  method         PayoutMethod? @default(ZainCash)
+  status         PayoutStatus  @default(Created)
+  payoutProfile  Json?
+  paymentProfile Json?
+  amountInt      Int?
+  order          Order[]
+  store          Store         @relation(fields: [storeId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+
+  toAccount   String?
+  fee         Int     @default(0)
+  fromAccount String?
+  metadata    Json?
+}
+
+model PromoCodes {
+  id               String       @id @default(cuid())
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  startOn          DateTime?
+  endOn            DateTime?
+  discountType     DiscountType @default(Percentage)
+  discountAmount   Int
+  promoType        PromoType    @default(Discount)
+  minimumCartValue Int
+  code             String
+  description      String?
+  storeId          String
+  userId           String
+  active           Boolean      @default(true)
+  onlyEPayment     Boolean      @default(true)
+  onlyOnce         Boolean      @default(true)
+  qt               Int          @default(-1)
+  store            Store        @relation(fields: [storeId], references: [id])
+  merchant         User         @relation(fields: [userId], references: [id])
+  customers        Customer[]   @relation("CustomerToPromoCodes")
+
+  @@unique([code, userId])
+}
+
+model PaymentProfile {
+  id                  String           @id @default(cuid())
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  zaincash            String           @default("3.5")
+  nasswallet          String           @default("3.5")
+  fastpay             String           @default("3.5")
+  taifPay             String           @default("3.5")
+  firstIraqiBank      String           @default("3.5")
+  localVisa           String           @default("3.5")
+  localMastercard     String           @default("3.5")
+  monthlySubscription String           @default("100")
+  intlVisa            String           @default("3.5")
+  intlMastercard      String           @default("3.5")
+  qicard              String           @default("3.5")
+  stripe              String           @default("3.5")
+  standardPackage     Boolean          @default(false)
+  packageName         String
+  flatFee             String           @default("50")
+  settelmentPeriod    SettelmentPeriod @default(OnRequest)
+  features            String[]
+  store               Store[]
+}
+
+model PayoutProfile {
+  id                 String   @id @default(cuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  zaincashFee        String   @default("0")
+  zainCashFeeType    FeeType  @default(Fixed)
+  cashFee            String   @default("0")
+  cashFeeType        FeeType  @default(Fixed)
+  bankAccountFee     String   @default("0")
+  bankAccountFeeType FeeType  @default(Fixed)
+  waylCardFee        String   @default("0")
+  waylCardFeeType    FeeType  @default(Fixed)
+  title              String
+  store              Store[]
+  methodFees         Json?
+}
+
+model Refund {
+  id          String       @id @default(cuid())
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  status      RefundStatus @default(Requested)
+  initiatedBy InitiatedBy
+  reason      String?
+  adminNote   String?
+  orderId     String
+  customerId  String
+  userId      String
+  storeId     String
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  order       Order        @relation(fields: [orderId], references: [id])
+  store       Store        @relation(fields: [storeId], references: [id])
+  merchant    User         @relation(fields: [userId], references: [id])
+  amount      Int?
+
+  type              RefundType             @default(Refund)
+  toOriginalAccount Boolean                @default(true)
+  refundMethod      PaymentMethodCodeEnum?
+  transactionId     String?
+  fromAccount       String?
+  toAccount         String?
+  refundedAt        DateTime?
+  proofOfRefund     String?
+  conversation      Json[]
+}
+
+enum RefundType {
+  Refund
+  Chargeback
+}
+
+enum KYCFormStatus {
+  Pending
+  Submitted
+  Approved
+  Rejected
+}
+
+enum Language {
+  Arabic
+  English
+  Kurdish
+}
+
+enum PreferredPayoutMethod {
+  ZainCash
+  WaylCard
+  BankAccount
+  RTGS
+  QiCard
+  Cash
+}
+
+enum VerificationStatus {
+  NothingUploaded
+  DocumentNeeded
+  UnderReview
+  Verified
+  Blocked
+  Stale
+}
+
+enum ProductType {
+  Digital
+  Physical
+  Service
+  Subscription
+}
+
+enum PayoutMethod {
+  ZainCash
+  Cash
+  WaylCard
+  BankAccount
+  RTGS
+  QiCard
+  FIB
+}
+
+enum PayoutStatus {
+  Created
+  Sent
+  Settled
+}
+
+enum DiscountType {
+  Percentage
+  Flat
+}
+
+enum PromoType {
+  Discount
+  FreeDelivery
+}
+
+enum FeeType {
+  Percentage
+  Fixed
+}
+
+enum SettelmentPeriod {
+  Daily
+  Weekly
+  Monthly
+  Annually
+  OnRequest
+}
+
+enum RefundStatus {
+  Requested
+  Rejected
+  Refunded
+  Cancelled
+}
+
+enum InitiatedBy {
+  Customer
+  Merchant
+  System
+}
+
+enum CurrencyEnum {
+  IQD
+  USD
+}
+
+enum PaymentEnum {
+  ONCE
+  SUBSCRIPTION
+}
+
+enum PaymentStateEnum {
+  INIT
+  PROCESSING
+  PAID
+}
+
+enum LangEnum {
+  AR
+  EN
+  KRD
+}
+
+enum PaymentTypeEnum {
+  Deferred
+  PrePaid
+}
+
+enum PaymentStatusEnum {
+  Paid
+  NotPaid
+}
+
+enum StatusEnum {
+  Pending
+  Delivered
+  Cancelled
+}
+
+model Integration {
+  id      String   @id @default(cuid())
+  token   String   @unique
+  storeId String
+  userId  String
+  expires DateTime
+  active  Boolean  @default(true)
+  user    User     @relation(fields: [userId], references: [id])
+  store   Store    @relation(fields: [storeId], references: [id])
+}
+
+model PaymentMethod {
+  id                  String    @id @default(cuid())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  name                String
+  publishedAt         DateTime?
+  icon                String
+  code                String    @unique
+  supportsWebsite     Boolean   @default(true)
+  supportsIntegration Boolean   @default(true)
+}
+
+enum PaymentMethodCodeEnum {
+  Cards
+  COD
+  Amwal
+  Switch
+  Areeba
+  QiCard
+  Stripe
+  ZainCash
+  FastPay
+  NassWallet
+  Taif
+  FIB
+}
+
+// Wallet
+
+model MerchantWalletTransaction {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  type        WalletTransactionType
+  amount      Decimal // + for increase, - for decrease
+  description String?
+  currency    String                @default("IQD")
+  status      TransactionStatus     @default(confirmed)
+
+  referenceType String? // e.g. "order", "payout", etc.
+  referenceId   String? // ID of the related entity (order, payout, refund...)
+
+  metadata Json?
+  User     User?   @relation(fields: [userId], references: [id])
+  userId   String?
+}
+
+enum WalletTransactionType {
+  sale
+  account_refill
+  payout
+  refund
+  chargeback
+  subscription_fee
+  sales_commission
+  payout_commission
+  refund_commission
+  chargeback_penalty
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+  failed
+}
+
+enum SourceEnum {
+  api
+  dashboard
+  store
+  subscription
+  bot
+}
+
+model CardToken {
+  id            String         @id @default(cuid())
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  token         String         @unique
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  customerId    String?
+  last4digits   String?
+  brand         CardBrand?
+  subscriptions Subscription[]
+  hash          String?
+  expiry        String?
+}
+
+enum CardBrand {
+  Visa
+  Mastercard
+  Amex
+  Discover
+  JCB
+  UnionPay
+  Maestro
+  Diners
+  Rupay
+  Mir
+  Unknown
+  Raqeeem
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  amount          Int
+  currency        String             @default("IQD")
+  period          SubscriptionPeriod
+  productJson     Json
+  customer        Customer?          @relation(fields: [customerId], references: [id])
+  customerId      String?
+  store           Store?             @relation(fields: [storeId], references: [id])
+  storeId         String?
+  product         Product?           @relation(fields: [productId], references: [id])
+  productId       String?
+  status          SubscriptionStatus @default(Active)
+  nextBillingAt   DateTime?
+  pendingAmount   Int                @default(0)
+  unpaidSince     DateTime?
+  retryCount      Int?               @default(0)
+  cardToken       CardToken?         @relation(fields: [cardTokenId], references: [id])
+  cardTokenId     String?
+  cancelledAt     DateTime?
+  cancelledBy     CancelledBy?
+  cancelledReason String?
+  referenceId     String?
+}
+
+enum CancelledBy {
+  Customer
+  Merchant
+  Admin
+  System
+}
+
+enum SubscriptionStatus {
+  Active
+  Cancelled
+  Retrying
+}
+
+model SystemSettings {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  settings  Json     @default("{}")
+}
+
+model Attempt {
+  id                   String   @id @default(cuid())
+  createdAt            DateTime @default(now())
+  orderId              String
+  order                Order    @relation(fields: [orderId], references: [id])
+  error                Json     @default("{}")
+  paymentProcessor     String?
+  gatewayTransactionID String?
+  paymentResponse      Json     @default("{}")
+  threeDSecureResponse Json     @default("{}")
+  customer             Json     @default("{}")
+  phonenumber          String?
+  cardDetails          Json     @default("{}")
+}
+
+model WaylInvoice {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now())
+  paidAt    DateTime?
+
+  amount      Int
+  currency    String        @default("IQD")
+  status      InvoiceStatus @default(Pending)
+  paymentLink String?
+
+  metadata    Json    @default("{}")
+  description String?
+
+  storeId String @unique
+  store   Store  @relation(fields: [storeId], references: [id])
+  userId  String @unique
+  user    User   @relation(fields: [userId], references: [id])
+}
+
+enum InvoiceStatus {
+  Pending
+  Paid
+  Failed
+  Expired
+}
+
+model WaylSubscription {
+  id              String                 @id @default(cuid())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  amount          Int
+  currency        String                 @default("IQD")
+  period          WaylSubscriptionPeriod
+  productJson     Json
+  store           Store?                 @relation(fields: [storeId], references: [id])
+  storeId         String?
+  status          WaylSubscriptionStatus @default(Active)
+  nextBillingAt   DateTime?
+  pendingAmount   Int                    @default(0)
+  unpaidSince     DateTime?
+  retryCount      Int?                   @default(0)
+  cancelledAt     DateTime?
+  cancelledBy     CancelledBy?
+  cancelledReason String?
+  referenceId     String?
+}
+
+enum WaylSubscriptionStatus {
+  Active
+  Cancelled
+  Retrying
+}
+
+enum WaylSubscriptionPeriod {
+  Weekly
+  Monthly
+  Yearly
+}
+
+enum WaylCancelledBy {
+  Merchant
+  Admin
+  System
+}
+
+enum PayoutAccountMethod {
+  FIB
+  ZainCash
+  QiCard
+  RTGS
+  WaylCard
+  Cash
+}
+
+model PayoutAccount {
+  id         String              @id @default(cuid())
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  method     PayoutAccountMethod @default(FIB)
+  key        String
+  holderName String
+  active     Boolean             @default(true)
+  archived   Boolean             @default(false)
+  preferred  Boolean             @default(false)
+  storeId    String
+  userId     String
+  store      Store               @relation(fields: [storeId], references: [id])
+  user       User                @relation(fields: [userId], references: [id])
+
+  @@index([storeId])
+  @@index([userId])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  senderId    String
+  recipientId String
+
+  platform PlatformEnum @default(Instagram)
+  messages Message[]
+}
+
+enum PlatformEnum {
+  WhatsApp
+  Instagram
+  Facebook
+  TikTok
+  Youtube
+  LinkedIn
+  Twitter
+  Pinterest
+  Reddit
+  Snapchat
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  senderId    String
+  recipientId String
+
+  messageId String
+  text      String
+  timestamp String
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String
+}
+
+model ChannelAccount {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  accessToken String
+
+  platform PlatformEnum
+  externalAccountId String?
+
+  storeId String
+  store   Store  @relation(fields: [storeId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([platform, externalAccountId])
+}
+
+model BotJobAudit {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  jobName        String
+  conversationId String?
+  input          Json     @default("{}")
+  output         Json?
+  error          String?
+  durationMs     Int?
+}
