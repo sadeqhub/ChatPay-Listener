@@ -1,8 +1,11 @@
 {
   "name": "chatpay",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Wayl Instagram webhook listener (Meta → Postgres + BullMQ)",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18 <23"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "prisma generate && tsc",

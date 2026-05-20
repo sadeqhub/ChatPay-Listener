@@ -1,0 +1,28 @@
+# Porter (https://docs.porter.run) — use when GitHub autodetect misses this service.
+# Deploy: porter apply -f porter.yaml   (from Porter CLI, logged into your project)
+#
+# In the dashboard: create app from repo, choose "Dockerfile" build, root context,
+# or import settings from this file if your plan supports it.
+
+version: v2
+name: chatpay-listener
+
+services:
+  - name: webhook
+    type: web
+    run: npm start
+    port: 3000
+    cpuCores: 0.25
+    ramMegabytes: 512
+    healthCheck:
+      enabled: true
+      httpPath: /health
+      initialDelaySeconds: 15
+
+build:
+  method: docker
+  context: .
+  dockerfile: ./Dockerfile
+
+env:
+  NODE_ENV: production
