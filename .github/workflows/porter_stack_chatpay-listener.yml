@@ -1,0 +1,47 @@
+# Porter auto-deploy (required path/name for Porter GitHub integration).
+# Repo secret: PORTER_APP_12884_4188 — Porter app → Settings → Integrations → GitHub Actions.
+
+name: Deploy to Porter
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  porter-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Porter deploy token is configured
+        env:
+          PORTER_GH_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
+        run: |
+          if [ -z "$PORTER_GH_TOKEN" ]; then
+            echo "::error::Add GitHub Actions secret PORTER_APP_12884_4188 (value from Porter → app → Integrations → GitHub Actions)."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set Github tag
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Setup porter
+        uses: porter-dev/setup-porter@v0.1.0
+
+      - name: Deploy stack
+        timeout-minutes: 30
+        run: porter apply -f porter.yaml
+        env:
+          PORTER_CLUSTER: "4188"
+          PORTER_HOST: https://dashboard.porter.run
+          PORTER_PROJECT: "12884"
+          PORTER_APP_NAME: chatpay-listener
+          PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
+          PORTER_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
