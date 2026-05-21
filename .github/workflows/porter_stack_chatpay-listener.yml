@@ -1,5 +1,6 @@
 # Porter auto-deploy (required path/name for Porter GitHub integration).
-# Repo secret: PORTER_APP_12884_4188 — Porter app → Settings → Integrations → GitHub Actions.
+# Add ONE GitHub Actions secret (Porter → chatpay-listener → Integrations → GitHub Actions):
+#   PORTER_APP_12884_4188  or  PORTER_STACK_12884_4188
 
 name: Deploy to Porter
 
@@ -16,15 +17,6 @@ jobs:
   porter-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify Porter deploy token is configured
-        env:
-          PORTER_GH_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
-        run: |
-          if [ -z "$PORTER_GH_TOKEN" ]; then
-            echo "::error::Add GitHub Actions secret PORTER_APP_12884_4188 (value from Porter → app → Integrations → GitHub Actions)."
-            exit 1
-          fi
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -37,11 +29,21 @@ jobs:
 
       - name: Deploy stack
         timeout-minutes: 30
-        run: porter apply -f porter.yaml
         env:
+          PORTER_APP_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
+          PORTER_STACK_TOKEN: ${{ secrets.PORTER_STACK_12884_4188 }}
           PORTER_CLUSTER: "4188"
           PORTER_HOST: https://dashboard.porter.run
           PORTER_PROJECT: "12884"
           PORTER_APP_NAME: chatpay-listener
           PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
-          PORTER_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
+        run: |
+          if [ -n "$PORTER_APP_TOKEN" ]; then
+            export PORTER_TOKEN="$PORTER_APP_TOKEN"
+          elif [ -n "$PORTER_STACK_TOKEN" ]; then
+            export PORTER_TOKEN="$PORTER_STACK_TOKEN"
+          else
+            echo "::error::Missing Porter token. GitHub → Settings → Secrets → Actions → add PORTER_APP_12884_4188 (from Porter Integrations → GitHub Actions)."
+            exit 1
+          fi
+          porter apply -f porter.yaml
