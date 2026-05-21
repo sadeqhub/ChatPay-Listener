@@ -1,6 +1,6 @@
-# Porter auto-deploy (required path/name for Porter GitHub integration).
-# Add ONE GitHub Actions secret (Porter → chatpay-listener → Integrations → GitHub Actions):
-#   PORTER_APP_12884_4188  or  PORTER_STACK_12884_4188
+# Porter auto-deploy — requires a GitHub Actions secret (see scripts/setup-porter-github-secret.sh).
+# Accepted secret names (use the name Porter shows in Integrations → GitHub Actions):
+#   PORTER_APP_12884_4188  |  PORTER_STACK_12884_4188  |  PORTER_TOKEN
 
 name: Deploy to Porter
 
@@ -17,6 +17,18 @@ jobs:
   porter-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Require Porter deploy token
+        env:
+          T1: ${{ secrets.PORTER_APP_12884_4188 }}
+          T2: ${{ secrets.PORTER_STACK_12884_4188 }}
+          T3: ${{ secrets.PORTER_TOKEN }}
+        run: |
+          if [ -z "$T1" ] && [ -z "$T2" ] && [ -z "$T3" ]; then
+            echo "::error::No Porter token in GitHub Secrets. Run: ./scripts/setup-porter-github-secret.sh"
+            echo "::error::Or add secret PORTER_APP_12884_4188 at https://github.com/sadeqhub/ChatPay-Listener/settings/secrets/actions"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -30,20 +42,17 @@ jobs:
       - name: Deploy stack
         timeout-minutes: 30
         env:
-          PORTER_APP_TOKEN: ${{ secrets.PORTER_APP_12884_4188 }}
-          PORTER_STACK_TOKEN: ${{ secrets.PORTER_STACK_12884_4188 }}
+          T1: ${{ secrets.PORTER_APP_12884_4188 }}
+          T2: ${{ secrets.PORTER_STACK_12884_4188 }}
+          T3: ${{ secrets.PORTER_TOKEN }}
           PORTER_CLUSTER: "4188"
           PORTER_HOST: https://dashboard.porter.run
           PORTER_PROJECT: "12884"
           PORTER_APP_NAME: chatpay-listener
           PORTER_TAG: ${{ steps.vars.outputs.sha_short }}
         run: |
-          if [ -n "$PORTER_APP_TOKEN" ]; then
-            export PORTER_TOKEN="$PORTER_APP_TOKEN"
-          elif [ -n "$PORTER_STACK_TOKEN" ]; then
-            export PORTER_TOKEN="$PORTER_STACK_TOKEN"
-          else
-            echo "::error::Missing Porter token. GitHub → Settings → Secrets → Actions → add PORTER_APP_12884_4188 (from Porter Integrations → GitHub Actions)."
-            exit 1
+          if [ -n "$T1" ]; then export PORTER_TOKEN="$T1"
+          elif [ -n "$T2" ]; then export PORTER_TOKEN="$T2"
+          else export PORTER_TOKEN="$T3"
           fi
-          porter apply -f porter.yaml
+          porter apply -f porter.yaml --wait
