@@ -7,17 +7,11 @@ import { InstagramWebhookPayload } from '../webhooks/instagram/types';
 
 const router = Router();
 
-function getVerifyToken(): string | undefined {
-  return (
-    process.env.META_WEBHOOK_VERIFY_TOKEN ?? process.env.VERIFY_TOKEN
-  );
-}
-
 router.get('/', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  const verifyToken = getVerifyToken();
+  const verifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
 
   if (
     mode === 'subscribe' &&

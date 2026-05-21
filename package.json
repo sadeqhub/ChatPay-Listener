@@ -1,20 +1,18 @@
 {
-  "name": "chatpay",
+  "name": "chatpay-listener",
   "version": "1.0.0",
   "description": "Wayl Instagram webhook listener (Meta → Postgres + BullMQ)",
+  "private": true,
   "main": "dist/index.js",
   "engines": {
     "node": ">=18 <23"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "prisma generate && tsc",
     "postinstall": "prisma generate",
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {

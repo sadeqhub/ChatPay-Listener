@@ -23,31 +23,19 @@ function extractText(event: InstagramMessagingEvent): string | null {
 }
 
 function shouldSkipEvent(event: InstagramMessagingEvent): boolean {
-  if (event.standby !== undefined) {
-    return true;
-  }
+  if (event.standby !== undefined) return true;
   if (event.reaction !== undefined && !event.message && !event.postback) {
     return true;
   }
+  if (!event.message && !event.postback) return true;
 
   const message = event.message;
-  if (message) {
-    if (message.is_echo || message.is_deleted || message.is_unsupported) {
-      return true;
-    }
-    if (!message.text && (!message.attachments || message.attachments.length === 0)) {
-      return true;
-    }
-    if (!message.text) {
-      return true;
-    }
-  }
+  if (!message) return false;
 
-  if (!event.message && !event.postback) {
+  if (message.is_echo || message.is_deleted || message.is_unsupported) {
     return true;
   }
-
-  return false;
+  return !message.text;
 }
 
 export function parseInstagramWebhook(
