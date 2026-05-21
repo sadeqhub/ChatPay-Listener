@@ -1,8 +1,6 @@
-# Porter (https://docs.porter.run) — use when GitHub autodetect misses this service.
-# Deploy: porter apply -f porter.yaml   (from Porter CLI, logged into your project)
-#
-# In the dashboard: create app from repo, choose "Dockerfile" build, root context,
-# or import settings from this file if your plan supports it.
+# Optional reference config. CI uses `porter apply` (no -f), same as ChatPay-Worker —
+# build/run settings live in Porter after the first dashboard deploy.
+# GitHub secret is auto-created when you connect this repo in Porter (not a copy-paste token).
 
 version: v2
 name: chatpay-listener

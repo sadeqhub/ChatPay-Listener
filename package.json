@@ -11,8 +11,7 @@
     "build": "prisma generate && tsc",
     "postinstall": "prisma generate",
     "start": "node dist/index.js",
-    "dev": "nodemon src/index.ts",
-    "setup:porter-secret": "bash scripts/setup-porter-github-secret.sh"
+    "dev": "nodemon src/index.ts"
   },
   "keywords": [],
   "author": "",
