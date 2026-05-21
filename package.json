@@ -1,35 +1,31 @@
 {
-  "name": "chatpay",
+  "name": "chatpay-listener",
   "version": "1.0.0",
+  "private": true,
   "description": "Wayl Instagram webhook listener (Meta → Postgres + BullMQ)",
-  "main": "dist/index.js",
   "engines": {
-    "node": ">=18 <23"
+    "node": ">=18.18 <23"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "prisma generate && tsc",
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
     "postinstall": "prisma generate",
-    "start": "node dist/index.js",
-    "dev": "nodemon src/index.ts"
+    "lint": "next lint"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "bullmq": "^5.76.8",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
     "ioredis": "^5.10.1",
-    "prisma": "^5.22.0"
+    "next": "^15.3.3",
+    "prisma": "^5.22.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.8.0",
-    "nodemon": "^3.1.14",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "typescript": "^5.8.3"
   }
 }
