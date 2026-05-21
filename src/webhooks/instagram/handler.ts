@@ -1,7 +1,8 @@
-import prisma from '@/lib/db';
-import { messageQueue } from '@/lib/queue';
+import prisma from '../../services/db';
+import { messageQueue } from '../../queue';
 import { ParsedInboundMessage } from './parse';
 
+/** Matches `PlatformEnum.Instagram` in Prisma schema — use literal to avoid stale @prisma/client types before `prisma generate`. */
 const INSTAGRAM = 'Instagram' as const;
 
 export async function processInboundMessages(
