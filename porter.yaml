@@ -1,0 +1,22 @@
+version: v2
+name: chatpay-listener
+
+services:
+  - name: webhook
+    type: web
+    run: npm start
+    port: 3000
+    cpuCores: 0.25
+    ramMegabytes: 512
+    healthCheck:
+      enabled: true
+      httpPath: /health
+      initialDelaySeconds: 15
+
+build:
+  method: docker
+  context: .
+  dockerfile: ./Dockerfile
+
+env:
+  NODE_ENV: production
