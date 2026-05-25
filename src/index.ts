@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import instagramWebhooks from './routes/instagram';
+import oauthRoutes from './routes/oauth';
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/webhooks/instagram', instagramWebhooks);
+app.use(oauthRoutes);
 
 const PORT = process.env.PORT || 3000;
 
