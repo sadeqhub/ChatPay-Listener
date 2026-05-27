@@ -6,6 +6,10 @@ const router = Router();
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v21.0';
 const INSTAGRAM = 'Instagram' as const;
 
+/** hurdelivery — default target when no store/user is passed in OAuth */
+const DEFAULT_OAUTH_STORE_ID = 'cmhee2hx3004w915bxudirfv1';
+const DEFAULT_OAUTH_USER_ID = 'cmhedz7o2008qm4i2h1nvfq6d';
+
 /** Facebook Login — use when your app has no "Instagram" product (most webhook/messaging apps) */
 const FACEBOOK_LOGIN_SCOPES = [
   'instagram_basic',
@@ -25,6 +29,7 @@ const INSTAGRAM_BUSINESS_SCOPES = [
 ].join(',');
 
 type OAuthFlow = 'facebook' | 'instagram';
+type PersistContext = { storeId?: string; userId?: string };
 
 function getOAuthFlow(): OAuthFlow {
   const flow = process.env.OAUTH_FLOW?.trim().toLowerCase();
@@ -73,6 +78,55 @@ function escapeHtml(value: string): string {
 
 function normalizeAuthCode(code: string): string {
   return code.replace(/#_?$/, '');
+}
+
+function encodeState(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64url');
+}
+
+function decodeState(value: string): string | null {
+  try {
+    return Buffer.from(value, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+function buildStatePayload(
+  req: Request,
+  fallbackState: string,
+): string {
+  const storeId = typeof req.query.storeId === 'string' ? req.query.storeId.trim() : '';
+  const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+  const payload = {
+    state: fallbackState,
+    storeId: storeId || undefined,
+    userId: userId || undefined,
+  };
+  return encodeState(JSON.stringify(payload));
+}
+
+function parsePersistContext(stateValue: string | undefined): PersistContext {
+  if (!stateValue) {
+    return {};
+  }
+  const decoded = decodeState(stateValue);
+  if (!decoded) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(decoded) as {
+      state?: string;
+      storeId?: string;
+      userId?: string;
+    };
+    return {
+      storeId: parsed.storeId?.trim() || undefined,
+      userId: parsed.userId?.trim() || undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function buildFacebookAuthorizeUrl(
@@ -260,15 +314,28 @@ async function exchangeLongLivedInstagramToken(
   return body;
 }
 
+function resolvePersistContext(context: PersistContext): {
+  storeId: string;
+  userId: string;
+} {
+  return {
+    storeId:
+      context.storeId ||
+      process.env.OAUTH_STORE_ID?.trim() ||
+      DEFAULT_OAUTH_STORE_ID,
+    userId:
+      context.userId ||
+      process.env.OAUTH_USER_ID?.trim() ||
+      DEFAULT_OAUTH_USER_ID,
+  };
+}
+
 async function maybePersistChannelAccount(
   accessToken: string,
   externalAccountId: string,
+  context: PersistContext,
 ): Promise<string | null> {
-  const storeId = process.env.OAUTH_STORE_ID?.trim();
-  const userId = process.env.OAUTH_USER_ID?.trim();
-  if (!storeId || !userId) {
-    return null;
-  }
+  const { storeId, userId } = resolvePersistContext(context);
 
   const existing = await prisma.channelAccount.findFirst({
     where: { storeId, platform: INSTAGRAM },
@@ -303,6 +370,8 @@ function dashboardHint(flow: OAuthFlow): string {
 
 router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
   const flow = getOAuthFlow();
+  const stateParam = typeof req.query.state === 'string' ? req.query.state : undefined;
+  const persistContext = parsePersistContext(stateParam);
   const oauthError = req.query.error;
   if (typeof oauthError === 'string') {
     const description =
@@ -334,6 +403,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
 
     const state =
       typeof req.query.state === 'string' && req.query.state ? req.query.state : 'test';
+    const statePayload = buildStatePayload(req, state);
     const scope =
       typeof req.query.scope === 'string' && req.query.scope
         ? req.query.scope
@@ -343,8 +413,8 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
 
     const loginUrl =
       flow === 'facebook'
-        ? buildFacebookAuthorizeUrl(appId, redirectUri, scope, state)
-        : buildInstagramAuthorizeUrl(appId, redirectUri, scope, state);
+        ? buildFacebookAuthorizeUrl(appId, redirectUri, scope, statePayload)
+        : buildInstagramAuthorizeUrl(appId, redirectUri, scope, statePayload);
 
     const flowLabel =
       flow === 'facebook' ? 'Facebook Login (Instagram via Page)' : 'Instagram Business Login';
@@ -382,7 +452,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
       const linked = await findInstagramBusinessAccount(accessToken);
       const igId = linked?.igId;
       const channelAccountId = igId
-        ? await maybePersistChannelAccount(accessToken, igId)
+        ? await maybePersistChannelAccount(accessToken, igId, persistContext)
         : null;
 
       const tokenPreview = `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}`;
@@ -407,7 +477,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     ${
       channelAccountId
         ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
-        : '<li><strong>ChannelAccount:</strong> not saved — set <code>OAUTH_STORE_ID</code> and <code>OAUTH_USER_ID</code> on Railway.</li>'
+        : '<li><strong>ChannelAccount:</strong> not saved — no Instagram account linked to a Facebook Page.</li>'
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
@@ -422,6 +492,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const channelAccountId = await maybePersistChannelAccount(
       accessToken,
       shortLived.user_id,
+      persistContext,
     );
 
     res.status(200).type('html').send(
@@ -435,7 +506,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     ${
       channelAccountId
         ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
-        : '<li><strong>ChannelAccount:</strong> not saved — set <code>OAUTH_STORE_ID</code> and <code>OAUTH_USER_ID</code>.</li>'
+        : '<li><strong>ChannelAccount:</strong> not saved — OAuth callback did not receive an Instagram account id.</li>'
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
