@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../services/db';
 
 const router = Router();
@@ -334,8 +335,21 @@ async function maybePersistChannelAccount(
   accessToken: string,
   externalAccountId: string,
   context: PersistContext,
-): Promise<string | null> {
+): Promise<{ channelAccountId: string | null; warning?: string }> {
   const { storeId, userId } = resolvePersistContext(context);
+
+  const [store, user] = await Promise.all([
+    prisma.store.findUnique({ where: { id: storeId }, select: { id: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
+  ]);
+
+  if (!store || !user) {
+    return {
+      channelAccountId: null,
+      warning:
+        'Invalid OAuth persistence defaults: storeId/userId does not exist in this database. Set OAUTH_STORE_ID and OAUTH_USER_ID in Railway.',
+    };
+  }
 
   const existing = await prisma.channelAccount.findFirst({
     where: { storeId, platform: INSTAGRAM },
@@ -346,19 +360,30 @@ async function maybePersistChannelAccount(
       where: { id: existing.id },
       data: { accessToken, externalAccountId },
     });
-    return existing.id;
+    return { channelAccountId: existing.id };
   }
 
-  const created = await prisma.channelAccount.create({
-    data: {
-      storeId,
-      userId,
-      platform: INSTAGRAM,
-      accessToken,
-      externalAccountId,
-    },
-  });
-  return created.id;
+  try {
+    const created = await prisma.channelAccount.create({
+      data: {
+        storeId,
+        userId,
+        platform: INSTAGRAM,
+        accessToken,
+        externalAccountId,
+      },
+    });
+    return { channelAccountId: created.id };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return {
+        channelAccountId: null,
+        warning:
+          'Could not persist ChannelAccount due to foreign key mismatch. Verify OAUTH_STORE_ID and OAUTH_USER_ID against production DB.',
+      };
+    }
+    throw error;
+  }
 }
 
 function dashboardHint(flow: OAuthFlow): string {
@@ -451,9 +476,10 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
       const accessToken = longLived.access_token;
       const linked = await findInstagramBusinessAccount(accessToken);
       const igId = linked?.igId;
-      const channelAccountId = igId
+      const persisted = igId
         ? await maybePersistChannelAccount(accessToken, igId, persistContext)
-        : null;
+        : { channelAccountId: null as string | null };
+      const channelAccountId = persisted.channelAccountId;
 
       const tokenPreview = `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}`;
       const expiresIn = longLived.expires_in ?? shortLived.expires_in;
@@ -477,7 +503,9 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     ${
       channelAccountId
         ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
-        : '<li><strong>ChannelAccount:</strong> not saved — no Instagram account linked to a Facebook Page.</li>'
+        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
+            persisted.warning || 'no Instagram account linked to a Facebook Page.',
+          )}</li>`
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
@@ -489,11 +517,12 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const shortLived = await exchangeInstagramCode(code, redirectUri);
     const longLived = await exchangeLongLivedInstagramToken(shortLived.access_token);
     const accessToken = longLived.access_token;
-    const channelAccountId = await maybePersistChannelAccount(
+    const persisted = await maybePersistChannelAccount(
       accessToken,
       shortLived.user_id,
       persistContext,
     );
+    const channelAccountId = persisted.channelAccountId;
 
     res.status(200).type('html').send(
       `<!DOCTYPE html>
@@ -506,7 +535,9 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     ${
       channelAccountId
         ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
-        : '<li><strong>ChannelAccount:</strong> not saved — OAuth callback did not receive an Instagram account id.</li>'
+        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
+            persisted.warning || 'OAuth callback did not receive an Instagram account id.',
+          )}</li>`
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
