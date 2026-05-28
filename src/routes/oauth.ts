@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../services/db';
+import {
+  renderConnectPage,
+  renderErrorPage,
+  renderResultPage,
+  renderSelectPage,
+} from '../views/chatpayAuthPages';
 
 const router = Router();
 
@@ -74,14 +80,6 @@ function getInstagramAppId(): string | undefined {
 
 function getInstagramAppSecret(): string | undefined {
   return process.env.INSTAGRAM_APP_SECRET?.trim() || getFacebookAppSecret();
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 function normalizeAuthCode(code: string): string {
@@ -265,29 +263,48 @@ async function findInstagramBusinessAccounts(
   return linked;
 }
 
+async function postSubscribedApps(
+  objectId: string,
+  pageAccessToken: string,
+): Promise<string | undefined> {
+  const url = new URL(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${objectId}/subscribed_apps`,
+  );
+  url.searchParams.set(
+    'subscribed_fields',
+    'messages,messaging_postbacks,messaging_seen,message_reactions',
+  );
+  url.searchParams.set('access_token', pageAccessToken);
+
+  const response = await fetch(url, { method: 'POST' });
+  const body = (await response.json()) as { success?: boolean; error?: { message: string } };
+  if (!response.ok || body.error) {
+    return body.error?.message || `subscribed_apps failed (${response.status})`;
+  }
+  if (!body.success) {
+    return 'subscribed_apps returned without success';
+  }
+  return undefined;
+}
+
+/** Messenger/Page setup uses Page id; some apps reject IG professional account id here. */
 async function subscribeInstagramWebhooks(
+  pageId: string,
   igProfessionalAccountId: string,
   pageAccessToken: string,
 ): Promise<string | undefined> {
   try {
-    const url = new URL(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${igProfessionalAccountId}/subscribed_apps`,
-    );
-    url.searchParams.set(
-      'subscribed_fields',
-      'messages,messaging_postbacks,messaging_seen,message_reactions',
-    );
-    url.searchParams.set('access_token', pageAccessToken);
+    const pageError = await postSubscribedApps(pageId, pageAccessToken);
+    if (!pageError) {
+      return undefined;
+    }
 
-    const response = await fetch(url, { method: 'POST' });
-    const body = (await response.json()) as { success?: boolean; error?: { message: string } };
-    if (!response.ok || body.error) {
-      return body.error?.message || `subscribed_apps failed (${response.status})`;
+    const igError = await postSubscribedApps(igProfessionalAccountId, pageAccessToken);
+    if (!igError) {
+      return undefined;
     }
-    if (!body.success) {
-      return 'subscribed_apps returned without success';
-    }
-    return undefined;
+
+    return `Page: ${pageError}. IG account: ${igError}. If The Journey is subscribed in Meta dashboard, webhooks may still work.`;
   } catch (err) {
     return err instanceof Error ? err.message : 'subscribed_apps failed';
   }
@@ -464,14 +481,56 @@ async function maybePersistChannelAccount(
   }
 }
 
-function dashboardHint(flow: OAuthFlow): string {
-  if (flow === 'instagram') {
-    return 'App Dashboard → Instagram use case → API setup with Instagram login → Business login settings → OAuth redirect URIs';
+function buildSuccessRows(opts: {
+  pageName?: string;
+  pageId?: string;
+  igId?: string;
+  channelAccountId?: string | null;
+  persistedWarning?: string;
+  subscribeWarning?: string;
+  tokenPreview?: string;
+}): Array<{
+  label: string;
+  value: string;
+  asCode?: boolean;
+  status?: 'ok' | 'warn';
+}> {
+  const rows: Array<{
+    label: string;
+    value: string;
+    asCode?: boolean;
+    status?: 'ok' | 'warn';
+  }> = [];
+
+  if (opts.pageName) {
+    rows.push({ label: 'Facebook Page', value: opts.pageName });
   }
-  return 'App Dashboard → Use cases (or Facebook Login / Facebook Login for Business) → Settings → Valid OAuth Redirect URIs';
+  if (opts.igId) {
+    rows.push({ label: 'Instagram account', value: opts.igId, asCode: true });
+  }
+  if (opts.tokenPreview) {
+    rows.push({ label: 'Token', value: opts.tokenPreview, asCode: true });
+  }
+  if (opts.channelAccountId) {
+    rows.push({
+      label: 'Channel account',
+      value: opts.channelAccountId,
+      asCode: true,
+      status: 'ok',
+    });
+  } else if (opts.persistedWarning) {
+    rows.push({ label: 'Channel account', value: opts.persistedWarning, status: 'warn' });
+  }
+  if (opts.subscribeWarning) {
+    rows.push({ label: 'Webhooks', value: opts.subscribeWarning, status: 'warn' });
+  } else if (opts.channelAccountId) {
+    rows.push({ label: 'Webhooks', value: 'Subscribed', status: 'ok' });
+  }
+
+  return rows;
 }
 
-router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
+async function handleOAuth(req: Request, res: Response): Promise<void> {
   const flow = getOAuthFlow();
   const stateParam = typeof req.query.state === 'string' ? req.query.state : undefined;
   const persistContext = parsePersistContext(stateParam);
@@ -485,7 +544,10 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
         ? req.query.error_description
         : oauthError;
     res.status(400).type('html').send(
-      `<!DOCTYPE html><html><body><h1>Login cancelled</h1><p>${escapeHtml(description)}</p></body></html>`,
+      renderErrorPage({
+        title: 'Login cancelled',
+        message: description,
+      }),
     );
     return;
   }
@@ -499,7 +561,10 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const session = decodeSelectionSession(selectionSessionParam);
     if (!session) {
       res.status(400).type('html').send(
-        '<!DOCTYPE html><html><body><h1>Invalid page selection session</h1><p>Please restart login from <code>/oauth.php</code>.</p></body></html>',
+        renderErrorPage({
+          title: 'Session expired',
+          message: 'Please start again and connect ChatPay Bot.',
+        }),
       );
       return;
     }
@@ -507,7 +572,10 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const selected = session.pages.find((page) => page.pageId === pageIdParam);
     if (!selected) {
       res.status(400).type('html').send(
-        '<!DOCTYPE html><html><body><h1>Invalid page selection</h1><p>Please restart login from <code>/oauth.php</code>.</p></body></html>',
+        renderErrorPage({
+          title: 'Invalid selection',
+          message: 'That Page is no longer available. Please connect again.',
+        }),
       );
       return;
     }
@@ -518,6 +586,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
       session.persistContext,
     );
     const subscribeWarning = await subscribeInstagramWebhooks(
+      selected.pageId,
       selected.igId,
       selected.pageAccessToken,
     );
@@ -525,34 +594,19 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const tokenPreview = `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`;
 
     res.status(200).type('html').send(
-      `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /><title>Login successful</title></head>
-<body>
-  <h1>Login successful</h1>
-  <ul>
-    <li><strong>Flow:</strong> Facebook Login</li>
-    <li><strong>Redirect URI:</strong> <code>${escapeHtml(redirectUri)}</code></li>
-    <li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code></li>
-    ${session.expiresIn ? `<li><strong>Expires in:</strong> ${session.expiresIn} seconds</li>` : ''}
-    <li><strong>Selected Facebook Page:</strong> ${escapeHtml(selected.pageName || selected.pageId)}</li>
-    <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(selected.igId)}</code></li>
-    ${
-      persisted.channelAccountId
-        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(persisted.channelAccountId)}</code> (Page access token)</li>`
-        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
-            persisted.warning || 'Unable to persist selected account.',
-          )}</li>`
-    }
-    ${
-      subscribeWarning
-        ? `<li><strong>Webhook subscribe:</strong> ${escapeHtml(subscribeWarning)}</li>`
-        : persisted.channelAccountId
-          ? '<li><strong>Webhook subscribe:</strong> subscribed_apps OK</li>'
-          : ''
-    }
-  </ul>
-  <p><a href="/oauth.php">Try again</a></p>
-</body></html>`,
+      renderResultPage({
+        title: 'ChatPay Bot connected',
+        subtitle: 'Your Instagram account is linked and ready for messaging.',
+        rows: buildSuccessRows({
+          pageName: selected.pageName || selected.pageId,
+          igId: selected.igId,
+          tokenPreview,
+          channelAccountId: persisted.channelAccountId,
+          persistedWarning: persisted.warning,
+          subscribeWarning,
+        }),
+        primaryAction: { label: 'Connect another account', href: '/oauth.php' },
+      }),
     );
     return;
   }
@@ -560,11 +614,11 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
   if (typeof code !== 'string' || !code) {
     if (!appId) {
       res.status(500).type('html').send(
-        `<!DOCTYPE html><html><body>
-          <h1>OAuth not configured</h1>
-          <p>Set <code>META_APP_ID</code> and <code>META_APP_SECRET</code> from
-          <strong>App settings → Basic</strong> (Facebook App ID <code>1249132917203572</code>).</p>
-        </body></html>`,
+        renderErrorPage({
+          title: 'Setup incomplete',
+          message:
+            'Set META_APP_ID and META_APP_SECRET in Railway (Meta App settings → Basic).',
+        }),
       );
       return;
     }
@@ -584,30 +638,13 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
         ? buildFacebookAuthorizeUrl(appId, redirectUri, scope, statePayload)
         : buildInstagramAuthorizeUrl(appId, redirectUri, scope, statePayload);
 
-    const flowLabel =
-      flow === 'facebook' ? 'Facebook Login (Instagram via Page)' : 'Instagram Business Login';
+    const { storeId } = resolvePersistContext(persistContext);
 
     res.status(200).type('html').send(
-      `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8" /><title>Connect Instagram</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-  pre { background: #f4f4f5; padding: 0.75rem; overflow-x: auto; font-size: 0.9rem; }
-  a.button { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; background: #1877f2; color: #fff; text-decoration: none; border-radius: 6px; }
-  .note { color: #444; font-size: 0.95rem; }
-</style>
-</head>
-<body>
-  <h1>${escapeHtml(flowLabel)}</h1>
-  <p class="note">Flow: <code>OAUTH_FLOW=${escapeHtml(flow)}</code> (default <code>facebook</code> when you have no Instagram product)</p>
-  <p>Add this redirect URI in Meta:</p>
-  <pre>${escapeHtml(redirectUri)}</pre>
-  <p class="note">${escapeHtml(dashboardHint(flow))}</p>
-  <p>App ID: <code>${escapeHtml(appId)}</code></p>
-  <p><a class="button" href="${escapeHtml(loginUrl)}">Log in with Facebook</a></p>
-</body>
-</html>`,
+      renderConnectPage({
+        loginUrl,
+        storeLabel: storeId,
+      }),
     );
     return;
   }
@@ -626,26 +663,14 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
           pages: linkedPages,
           persistContext,
         });
-        const optionsHtml = linkedPages
-          .map(
-            (page) =>
-              `<li><a href="/oauth.php?selection=${encodeURIComponent(selection)}&pageId=${encodeURIComponent(
-                page.pageId,
-              )}">${escapeHtml(page.pageName || page.pageId)}</a> — <code>${escapeHtml(
-                page.igId,
-              )}</code></li>`,
-          )
-          .join('');
-
         res.status(200).type('html').send(
-          `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /><title>Select Page</title></head>
-<body>
-  <h1>Select which Page to connect</h1>
-  <p>Multiple Facebook Pages with linked Instagram accounts were found. Choose one:</p>
-  <ul>${optionsHtml}</ul>
-  <p><a href="/oauth.php">Restart login</a></p>
-</body></html>`,
+          renderSelectPage({
+            pages: linkedPages.map((page) => ({
+              href: `/oauth.php?selection=${encodeURIComponent(selection)}&pageId=${encodeURIComponent(page.pageId)}`,
+              pageName: page.pageName || page.pageId,
+              igId: page.igId,
+            })),
+          }),
         );
         return;
       }
@@ -662,45 +687,40 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
         : { channelAccountId: null as string | null };
       const channelAccountId = persisted.channelAccountId;
       const subscribeWarning = selected
-        ? await subscribeInstagramWebhooks(selected.igId, selected.pageAccessToken)
+        ? await subscribeInstagramWebhooks(
+            selected.pageId,
+            selected.igId,
+            selected.pageAccessToken,
+          )
         : undefined;
       const tokenPreview = selected
         ? `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`
         : '';
 
       res.status(200).type('html').send(
-        `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /><title>Login successful</title></head>
-<body>
-  <h1>Login successful</h1>
-  <ul>
-    <li><strong>Flow:</strong> Facebook Login</li>
-    <li><strong>Redirect URI:</strong> <code>${escapeHtml(redirectUri)}</code></li>
-    ${selected ? `<li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code> (Page token)</li>` : ''}
-    ${expiresIn ? `<li><strong>Expires in:</strong> ${expiresIn} seconds</li>` : ''}
-    ${
-      selected
-        ? `<li><strong>Facebook Page:</strong> ${escapeHtml(selected.pageName || selected.pageId)}</li>
-           <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(selected.igId)}</code></li>`
-        : `<li><strong>Instagram account:</strong> none — connect an Instagram professional account to a Facebook Page, then log in again.</li>`
-    }
-    ${
-      channelAccountId
-        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code> (Page access token)</li>`
-        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
-            persisted.warning || 'no Instagram account linked to a Facebook Page.',
-          )}</li>`
-    }
-    ${
-      subscribeWarning
-        ? `<li><strong>Webhook subscribe:</strong> ${escapeHtml(subscribeWarning)}</li>`
-        : channelAccountId
-          ? '<li><strong>Webhook subscribe:</strong> subscribed_apps OK</li>'
-          : ''
-    }
-  </ul>
-  <p><a href="/oauth.php">Try again</a></p>
-</body></html>`,
+        renderResultPage({
+          title: selected ? 'ChatPay Bot connected' : 'No Instagram account found',
+          subtitle: selected
+            ? 'Your Instagram account is linked and ready for messaging.'
+            : 'Link an Instagram professional account to a Facebook Page, then try again.',
+          rows: selected
+            ? buildSuccessRows({
+                pageName: selected.pageName || selected.pageId,
+                igId: selected.igId,
+                tokenPreview,
+                channelAccountId,
+                persistedWarning: persisted.warning,
+                subscribeWarning,
+              })
+            : [
+                {
+                  label: 'Tip',
+                  value: 'Connect IG to a Facebook Page in Meta Business settings first.',
+                  status: 'warn',
+                },
+              ],
+          primaryAction: { label: 'Try again', href: '/oauth.php' },
+        }),
       );
       return;
     }
@@ -716,38 +736,30 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     const channelAccountId = persisted.channelAccountId;
 
     res.status(200).type('html').send(
-      `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8" /><title>Login successful</title></head>
-<body>
-  <h1>Login successful</h1>
-  <ul>
-    <li><strong>Flow:</strong> Instagram Login</li>
-    <li><strong>Instagram user id:</strong> <code>${escapeHtml(shortLived.user_id)}</code></li>
-    ${
-      channelAccountId
-        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
-        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
-            persisted.warning || 'OAuth callback did not receive an Instagram account id.',
-          )}</li>`
-    }
-  </ul>
-  <p><a href="/oauth.php">Try again</a></p>
-</body></html>`,
+      renderResultPage({
+        title: 'ChatPay Bot connected',
+        subtitle: 'Instagram Login completed successfully.',
+        rows: buildSuccessRows({
+          igId: shortLived.user_id,
+          channelAccountId,
+          persistedWarning: persisted.warning,
+        }),
+        primaryAction: { label: 'Connect another account', href: '/oauth.php' },
+      }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'OAuth failed';
     console.error('oauth.php error:', message);
-    let hint = '';
-    if (message.toLowerCase().includes('invalid platform app')) {
-      hint =
-        flow === 'facebook'
-          ? `<p><strong>Fix:</strong> Do not use <code>instagram.com/oauth/authorize</code>. Use this page’s Facebook button, or set <code>OAUTH_FLOW=facebook</code>. Register the redirect URI under <strong>Facebook Login → Valid OAuth Redirect URIs</strong>.</p>`
-          : `<p><strong>Fix:</strong> Use <code>INSTAGRAM_APP_ID</code> / <code>INSTAGRAM_APP_SECRET</code> from Instagram Business login settings, or switch to <code>OAUTH_FLOW=facebook</code> if your app has no Instagram product.</p>`;
-    }
     res.status(500).type('html').send(
-      `<!DOCTYPE html><html><body><h1>OAuth failed</h1><p>${escapeHtml(message)}</p>${hint}<p>Redirect URI: <code>${escapeHtml(redirectUri)}</code></p></body></html>`,
+      renderErrorPage({
+        title: 'Connection failed',
+        message,
+      }),
     );
   }
-});
+}
+
+router.get('/oauth.php', handleOAuth);
+router.get('/connect', handleOAuth);
 
 export default router;
