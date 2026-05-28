@@ -31,7 +31,13 @@ const INSTAGRAM_BUSINESS_SCOPES = [
 
 type OAuthFlow = 'facebook' | 'instagram';
 type PersistContext = { storeId?: string; userId?: string };
-type LinkedInstagramPage = { pageId: string; pageName?: string; igId: string };
+type LinkedInstagramPage = {
+  pageId: string;
+  pageName?: string;
+  igId: string;
+  /** Long-lived Page access token — required for sending Instagram DMs via Graph */
+  pageAccessToken: string;
+};
 
 function getOAuthFlow(): OAuthFlow {
   const flow = process.env.OAUTH_FLOW?.trim().toLowerCase();
@@ -222,29 +228,72 @@ async function exchangeFacebookLongLived(shortLivedToken: string): Promise<Token
 type PageAccount = {
   id: string;
   name?: string;
+  access_token?: string;
   instagram_business_account?: { id: string };
 };
+
+/** Exchange a Page token for a long-lived Page token (same endpoint as user token exchange). */
+async function exchangeLongLivedPageToken(
+  pageAccessToken: string,
+): Promise<TokenResponse> {
+  return exchangeFacebookLongLived(pageAccessToken);
+}
 
 async function findInstagramBusinessAccounts(
   userAccessToken: string,
 ): Promise<LinkedInstagramPage[]> {
   const pages = await graphGet<{ data: PageAccount[] }>('me/accounts', {
     access_token: userAccessToken,
-    fields: 'id,name,instagram_business_account',
+    fields: 'id,name,access_token,instagram_business_account',
   });
 
   const linked: LinkedInstagramPage[] = [];
   for (const page of pages.data) {
     const igId = page.instagram_business_account?.id;
-    if (igId) {
-      linked.push({ pageId: page.id, pageName: page.name, igId });
+    const shortPageToken = page.access_token;
+    if (!igId || !shortPageToken) {
+      continue;
     }
+    const longLivedPage = await exchangeLongLivedPageToken(shortPageToken);
+    linked.push({
+      pageId: page.id,
+      pageName: page.name,
+      igId,
+      pageAccessToken: longLivedPage.access_token,
+    });
   }
   return linked;
 }
 
+async function subscribeInstagramWebhooks(
+  igProfessionalAccountId: string,
+  pageAccessToken: string,
+): Promise<string | undefined> {
+  try {
+    const url = new URL(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${igProfessionalAccountId}/subscribed_apps`,
+    );
+    url.searchParams.set(
+      'subscribed_fields',
+      'messages,messaging_postbacks,messaging_seen,message_reactions',
+    );
+    url.searchParams.set('access_token', pageAccessToken);
+
+    const response = await fetch(url, { method: 'POST' });
+    const body = (await response.json()) as { success?: boolean; error?: { message: string } };
+    if (!response.ok || body.error) {
+      return body.error?.message || `subscribed_apps failed (${response.status})`;
+    }
+    if (!body.success) {
+      return 'subscribed_apps returned without success';
+    }
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err.message : 'subscribed_apps failed';
+  }
+}
+
 type PageSelectionSession = {
-  accessToken: string;
   expiresIn?: number;
   pages: LinkedInstagramPage[];
   persistContext: PersistContext;
@@ -261,7 +310,7 @@ function decodeSelectionSession(raw: string): PageSelectionSession | null {
   }
   try {
     const parsed = JSON.parse(decoded) as PageSelectionSession;
-    if (!parsed.accessToken || !Array.isArray(parsed.pages)) {
+    if (!Array.isArray(parsed.pages) || parsed.pages.some((p) => !p.pageAccessToken)) {
       return null;
     }
     return parsed;
@@ -464,12 +513,16 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     }
 
     const persisted = await maybePersistChannelAccount(
-      session.accessToken,
+      selected.pageAccessToken,
       selected.igId,
       session.persistContext,
     );
+    const subscribeWarning = await subscribeInstagramWebhooks(
+      selected.igId,
+      selected.pageAccessToken,
+    );
 
-    const tokenPreview = `${session.accessToken.slice(0, 12)}…${session.accessToken.slice(-6)}`;
+    const tokenPreview = `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`;
 
     res.status(200).type('html').send(
       `<!DOCTYPE html>
@@ -485,10 +538,17 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(selected.igId)}</code></li>
     ${
       persisted.channelAccountId
-        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(persisted.channelAccountId)}</code></li>`
+        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(persisted.channelAccountId)}</code> (Page access token)</li>`
         : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
             persisted.warning || 'Unable to persist selected account.',
           )}</li>`
+    }
+    ${
+      subscribeWarning
+        ? `<li><strong>Webhook subscribe:</strong> ${escapeHtml(subscribeWarning)}</li>`
+        : persisted.channelAccountId
+          ? '<li><strong>Webhook subscribe:</strong> subscribed_apps OK</li>'
+          : ''
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
@@ -554,17 +614,14 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
 
   try {
     if (flow === 'facebook') {
-      const shortLived = await exchangeFacebookCode(code, redirectUri);
-      const longLived = await exchangeFacebookLongLived(shortLived.access_token);
-      const accessToken = longLived.access_token;
-      const linkedPages = await findInstagramBusinessAccounts(accessToken);
+      const shortLivedUser = await exchangeFacebookCode(code, redirectUri);
+      const longLivedUser = await exchangeFacebookLongLived(shortLivedUser.access_token);
+      const linkedPages = await findInstagramBusinessAccounts(longLivedUser.access_token);
 
-      const tokenPreview = `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}`;
-      const expiresIn = longLived.expires_in ?? shortLived.expires_in;
+      const expiresIn = longLivedUser.expires_in ?? shortLivedUser.expires_in;
 
       if (linkedPages.length > 1 && !pageIdParam) {
         const selection = encodeSelectionSession({
-          accessToken,
           expiresIn,
           pages: linkedPages,
           persistContext,
@@ -597,9 +654,19 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
         (pageIdParam && linkedPages.find((page) => page.pageId === pageIdParam)) ||
         linkedPages[0];
       const persisted = selected
-        ? await maybePersistChannelAccount(accessToken, selected.igId, persistContext)
+        ? await maybePersistChannelAccount(
+            selected.pageAccessToken,
+            selected.igId,
+            persistContext,
+          )
         : { channelAccountId: null as string | null };
       const channelAccountId = persisted.channelAccountId;
+      const subscribeWarning = selected
+        ? await subscribeInstagramWebhooks(selected.igId, selected.pageAccessToken)
+        : undefined;
+      const tokenPreview = selected
+        ? `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`
+        : '';
 
       res.status(200).type('html').send(
         `<!DOCTYPE html>
@@ -609,7 +676,7 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
   <ul>
     <li><strong>Flow:</strong> Facebook Login</li>
     <li><strong>Redirect URI:</strong> <code>${escapeHtml(redirectUri)}</code></li>
-    <li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code></li>
+    ${selected ? `<li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code> (Page token)</li>` : ''}
     ${expiresIn ? `<li><strong>Expires in:</strong> ${expiresIn} seconds</li>` : ''}
     ${
       selected
@@ -619,10 +686,17 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     }
     ${
       channelAccountId
-        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code></li>`
+        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(channelAccountId)}</code> (Page access token)</li>`
         : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
             persisted.warning || 'no Instagram account linked to a Facebook Page.',
           )}</li>`
+    }
+    ${
+      subscribeWarning
+        ? `<li><strong>Webhook subscribe:</strong> ${escapeHtml(subscribeWarning)}</li>`
+        : channelAccountId
+          ? '<li><strong>Webhook subscribe:</strong> subscribed_apps OK</li>'
+          : ''
     }
   </ul>
   <p><a href="/oauth.php">Try again</a></p>
