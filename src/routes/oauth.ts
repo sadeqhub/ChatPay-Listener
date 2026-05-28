@@ -24,7 +24,19 @@ const FACEBOOK_LOGIN_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_metadata',
+  'pages_messaging',
   'business_management',
+].join(',');
+
+/** Fields required for Messenger/Instagram DM webhooks on the Page */
+const PAGE_WEBHOOK_FIELDS = [
+  'messages',
+  'messaging_postbacks',
+  'messaging_seen',
+  'message_reactions',
+  'messaging_handover',
+  'messaging_referral',
+  'messaging_optins',
 ].join(',');
 
 /** Instagram Login — only if App Dashboard has "API setup with Instagram login" */
@@ -263,17 +275,63 @@ async function findInstagramBusinessAccounts(
   return linked;
 }
 
-async function postSubscribedApps(
-  objectId: string,
+type SubscribedAppEntry = {
+  id: string;
+  subscribed_fields?: string[];
+};
+
+type WebhookSubscribeResult = {
+  ok: boolean;
+  message: string;
+};
+
+async function getPageSubscribedApps(
+  pageId: string,
   pageAccessToken: string,
+): Promise<SubscribedAppEntry[]> {
+  const url = new URL(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/subscribed_apps`,
+  );
+  url.searchParams.set('access_token', pageAccessToken);
+
+  const response = await fetch(url);
+  const body = (await response.json()) as {
+    data?: SubscribedAppEntry[];
+    error?: { message: string };
+  };
+  if (!response.ok || body.error) {
+    console.warn(
+      '[oauth:webhooks] GET subscribed_apps failed:',
+      body.error?.message || response.status,
+    );
+    return [];
+  }
+  return body.data ?? [];
+}
+
+function pageHasMessagingWebhooks(
+  apps: SubscribedAppEntry[],
+  appId: string,
+): SubscribedAppEntry | undefined {
+  const entry = apps.find((app) => app.id === appId);
+  if (!entry?.subscribed_fields?.length) {
+    return undefined;
+  }
+  const hasMessages = entry.subscribed_fields.some(
+    (field) => field === 'messages' || field.startsWith('messaging_'),
+  );
+  return hasMessages ? entry : undefined;
+}
+
+async function postPageSubscribedApps(
+  pageId: string,
+  pageAccessToken: string,
+  subscribedFields: string,
 ): Promise<string | undefined> {
   const url = new URL(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${objectId}/subscribed_apps`,
+    `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/subscribed_apps`,
   );
-  url.searchParams.set(
-    'subscribed_fields',
-    'messages,messaging_postbacks,messaging_seen,message_reactions',
-  );
+  url.searchParams.set('subscribed_fields', subscribedFields);
   url.searchParams.set('access_token', pageAccessToken);
 
   const response = await fetch(url, { method: 'POST' });
@@ -287,26 +345,61 @@ async function postSubscribedApps(
   return undefined;
 }
 
-/** Messenger/Page setup uses Page id; some apps reject IG professional account id here. */
-async function subscribeInstagramWebhooks(
+/**
+ * Installs this Meta app on the Page (required for webhook delivery).
+ * Instagram object webhooks in the dashboard + Page subscribed_apps must both be configured.
+ */
+async function ensurePageWebhookSubscriptions(
   pageId: string,
-  igProfessionalAccountId: string,
   pageAccessToken: string,
-): Promise<string | undefined> {
+): Promise<WebhookSubscribeResult> {
+  const appId = getFacebookAppId();
+  if (!appId) {
+    return { ok: false, message: 'META_APP_ID is not configured' };
+  }
+
   try {
-    const pageError = await postSubscribedApps(pageId, pageAccessToken);
-    if (!pageError) {
-      return undefined;
+    let installedApps = await getPageSubscribedApps(pageId, pageAccessToken);
+    let existing = pageHasMessagingWebhooks(installedApps, appId);
+    if (existing) {
+      console.log('[oauth:webhooks] App already installed on Page', pageId);
+      return {
+        ok: true,
+        message: `Webhooks active (${existing.subscribed_fields?.join(', ')})`,
+      };
     }
 
-    const igError = await postSubscribedApps(igProfessionalAccountId, pageAccessToken);
-    if (!igError) {
-      return undefined;
+    const attempts = [PAGE_WEBHOOK_FIELDS, 'messages'];
+    let lastError: string | undefined;
+
+    for (const fields of attempts) {
+      lastError = await postPageSubscribedApps(pageId, pageAccessToken, fields);
+      if (lastError) {
+        console.warn(`[oauth:webhooks] POST Page ${pageId} fields=${fields}:`, lastError);
+        continue;
+      }
+
+      installedApps = await getPageSubscribedApps(pageId, pageAccessToken);
+      existing = pageHasMessagingWebhooks(installedApps, appId);
+      if (existing) {
+        console.log('[oauth:webhooks] App installed on Page after POST', pageId);
+        return {
+          ok: true,
+          message: `Webhooks enabled (${existing.subscribed_fields?.join(', ')})`,
+        };
+      }
     }
 
-    return `Page: ${pageError}. IG account: ${igError}. If The Journey is subscribed in Meta dashboard, webhooks may still work.`;
+    return {
+      ok: false,
+      message:
+        lastError ??
+        'App not listed on Page subscribed_apps. Re-connect after granting pages_messaging, and confirm Instagram fields are subscribed in Meta dashboard.',
+    };
   } catch (err) {
-    return err instanceof Error ? err.message : 'subscribed_apps failed';
+    const message = err instanceof Error ? err.message : 'subscribed_apps failed';
+    console.error('[oauth:webhooks] ensurePageWebhookSubscriptions error:', message);
+    return { ok: false, message };
   }
 }
 
@@ -487,7 +580,7 @@ function buildSuccessRows(opts: {
   igId?: string;
   channelAccountId?: string | null;
   persistedWarning?: string;
-  subscribeWarning?: string;
+  webhookStatus?: WebhookSubscribeResult;
   tokenPreview?: string;
 }): Array<{
   label: string;
@@ -521,10 +614,12 @@ function buildSuccessRows(opts: {
   } else if (opts.persistedWarning) {
     rows.push({ label: 'Channel account', value: opts.persistedWarning, status: 'warn' });
   }
-  if (opts.subscribeWarning) {
-    rows.push({ label: 'Webhooks', value: opts.subscribeWarning, status: 'warn' });
-  } else if (opts.channelAccountId) {
-    rows.push({ label: 'Webhooks', value: 'Subscribed', status: 'ok' });
+  if (opts.webhookStatus) {
+    rows.push({
+      label: 'Webhooks',
+      value: opts.webhookStatus.message,
+      status: opts.webhookStatus.ok ? 'ok' : 'warn',
+    });
   }
 
   return rows;
@@ -585,9 +680,8 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
       selected.igId,
       session.persistContext,
     );
-    const subscribeWarning = await subscribeInstagramWebhooks(
+    const webhookStatus = await ensurePageWebhookSubscriptions(
       selected.pageId,
-      selected.igId,
       selected.pageAccessToken,
     );
 
@@ -603,7 +697,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           tokenPreview,
           channelAccountId: persisted.channelAccountId,
           persistedWarning: persisted.warning,
-          subscribeWarning,
+          webhookStatus,
         }),
         primaryAction: { label: 'Connect another account', href: '/oauth.php' },
       }),
@@ -686,13 +780,9 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           )
         : { channelAccountId: null as string | null };
       const channelAccountId = persisted.channelAccountId;
-      const subscribeWarning = selected
-        ? await subscribeInstagramWebhooks(
-            selected.pageId,
-            selected.igId,
-            selected.pageAccessToken,
-          )
-        : undefined;
+      const webhookStatus = selected
+        ? await ensurePageWebhookSubscriptions(selected.pageId, selected.pageAccessToken)
+        : { ok: false, message: 'No Page selected' };
       const tokenPreview = selected
         ? `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`
         : '';
@@ -710,7 +800,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
                 tokenPreview,
                 channelAccountId,
                 persistedWarning: persisted.warning,
-                subscribeWarning,
+                webhookStatus,
               })
             : [
                 {
