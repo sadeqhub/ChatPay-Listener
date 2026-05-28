@@ -31,6 +31,7 @@ const INSTAGRAM_BUSINESS_SCOPES = [
 
 type OAuthFlow = 'facebook' | 'instagram';
 type PersistContext = { storeId?: string; userId?: string };
+type LinkedInstagramPage = { pageId: string; pageName?: string; igId: string };
 
 function getOAuthFlow(): OAuthFlow {
   const flow = process.env.OAUTH_FLOW?.trim().toLowerCase();
@@ -224,21 +225,49 @@ type PageAccount = {
   instagram_business_account?: { id: string };
 };
 
-async function findInstagramBusinessAccount(
+async function findInstagramBusinessAccounts(
   userAccessToken: string,
-): Promise<{ pageId: string; pageName?: string; igId: string } | null> {
+): Promise<LinkedInstagramPage[]> {
   const pages = await graphGet<{ data: PageAccount[] }>('me/accounts', {
     access_token: userAccessToken,
     fields: 'id,name,instagram_business_account',
   });
 
+  const linked: LinkedInstagramPage[] = [];
   for (const page of pages.data) {
     const igId = page.instagram_business_account?.id;
     if (igId) {
-      return { pageId: page.id, pageName: page.name, igId };
+      linked.push({ pageId: page.id, pageName: page.name, igId });
     }
   }
-  return null;
+  return linked;
+}
+
+type PageSelectionSession = {
+  accessToken: string;
+  expiresIn?: number;
+  pages: LinkedInstagramPage[];
+  persistContext: PersistContext;
+};
+
+function encodeSelectionSession(session: PageSelectionSession): string {
+  return encodeState(JSON.stringify(session));
+}
+
+function decodeSelectionSession(raw: string): PageSelectionSession | null {
+  const decoded = decodeState(raw);
+  if (!decoded) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(decoded) as PageSelectionSession;
+    if (!parsed.accessToken || !Array.isArray(parsed.pages)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 type InstagramTokenEntry = {
@@ -397,6 +426,9 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
   const flow = getOAuthFlow();
   const stateParam = typeof req.query.state === 'string' ? req.query.state : undefined;
   const persistContext = parsePersistContext(stateParam);
+  const pageIdParam = typeof req.query.pageId === 'string' ? req.query.pageId : undefined;
+  const selectionSessionParam =
+    typeof req.query.selection === 'string' ? req.query.selection : undefined;
   const oauthError = req.query.error;
   if (typeof oauthError === 'string') {
     const description =
@@ -413,6 +445,57 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
   const redirectUri = getRedirectUri(req);
   const appId =
     flow === 'facebook' ? getFacebookAppId() : getInstagramAppId();
+
+  if (flow === 'facebook' && selectionSessionParam && pageIdParam) {
+    const session = decodeSelectionSession(selectionSessionParam);
+    if (!session) {
+      res.status(400).type('html').send(
+        '<!DOCTYPE html><html><body><h1>Invalid page selection session</h1><p>Please restart login from <code>/oauth.php</code>.</p></body></html>',
+      );
+      return;
+    }
+
+    const selected = session.pages.find((page) => page.pageId === pageIdParam);
+    if (!selected) {
+      res.status(400).type('html').send(
+        '<!DOCTYPE html><html><body><h1>Invalid page selection</h1><p>Please restart login from <code>/oauth.php</code>.</p></body></html>',
+      );
+      return;
+    }
+
+    const persisted = await maybePersistChannelAccount(
+      session.accessToken,
+      selected.igId,
+      session.persistContext,
+    );
+
+    const tokenPreview = `${session.accessToken.slice(0, 12)}…${session.accessToken.slice(-6)}`;
+
+    res.status(200).type('html').send(
+      `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" /><title>Login successful</title></head>
+<body>
+  <h1>Login successful</h1>
+  <ul>
+    <li><strong>Flow:</strong> Facebook Login</li>
+    <li><strong>Redirect URI:</strong> <code>${escapeHtml(redirectUri)}</code></li>
+    <li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code></li>
+    ${session.expiresIn ? `<li><strong>Expires in:</strong> ${session.expiresIn} seconds</li>` : ''}
+    <li><strong>Selected Facebook Page:</strong> ${escapeHtml(selected.pageName || selected.pageId)}</li>
+    <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(selected.igId)}</code></li>
+    ${
+      persisted.channelAccountId
+        ? `<li><strong>ChannelAccount saved:</strong> <code>${escapeHtml(persisted.channelAccountId)}</code></li>`
+        : `<li><strong>ChannelAccount:</strong> not saved — ${escapeHtml(
+            persisted.warning || 'Unable to persist selected account.',
+          )}</li>`
+    }
+  </ul>
+  <p><a href="/oauth.php">Try again</a></p>
+</body></html>`,
+    );
+    return;
+  }
 
   if (typeof code !== 'string' || !code) {
     if (!appId) {
@@ -474,15 +557,49 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
       const shortLived = await exchangeFacebookCode(code, redirectUri);
       const longLived = await exchangeFacebookLongLived(shortLived.access_token);
       const accessToken = longLived.access_token;
-      const linked = await findInstagramBusinessAccount(accessToken);
-      const igId = linked?.igId;
-      const persisted = igId
-        ? await maybePersistChannelAccount(accessToken, igId, persistContext)
-        : { channelAccountId: null as string | null };
-      const channelAccountId = persisted.channelAccountId;
+      const linkedPages = await findInstagramBusinessAccounts(accessToken);
 
       const tokenPreview = `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}`;
       const expiresIn = longLived.expires_in ?? shortLived.expires_in;
+
+      if (linkedPages.length > 1 && !pageIdParam) {
+        const selection = encodeSelectionSession({
+          accessToken,
+          expiresIn,
+          pages: linkedPages,
+          persistContext,
+        });
+        const optionsHtml = linkedPages
+          .map(
+            (page) =>
+              `<li><a href="/oauth.php?selection=${encodeURIComponent(selection)}&pageId=${encodeURIComponent(
+                page.pageId,
+              )}">${escapeHtml(page.pageName || page.pageId)}</a> — <code>${escapeHtml(
+                page.igId,
+              )}</code></li>`,
+          )
+          .join('');
+
+        res.status(200).type('html').send(
+          `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" /><title>Select Page</title></head>
+<body>
+  <h1>Select which Page to connect</h1>
+  <p>Multiple Facebook Pages with linked Instagram accounts were found. Choose one:</p>
+  <ul>${optionsHtml}</ul>
+  <p><a href="/oauth.php">Restart login</a></p>
+</body></html>`,
+        );
+        return;
+      }
+
+      const selected =
+        (pageIdParam && linkedPages.find((page) => page.pageId === pageIdParam)) ||
+        linkedPages[0];
+      const persisted = selected
+        ? await maybePersistChannelAccount(accessToken, selected.igId, persistContext)
+        : { channelAccountId: null as string | null };
+      const channelAccountId = persisted.channelAccountId;
 
       res.status(200).type('html').send(
         `<!DOCTYPE html>
@@ -495,9 +612,9 @@ router.get('/oauth.php', async (req: Request, res: Response): Promise<void> => {
     <li><strong>Token (preview):</strong> <code>${escapeHtml(tokenPreview)}</code></li>
     ${expiresIn ? `<li><strong>Expires in:</strong> ${expiresIn} seconds</li>` : ''}
     ${
-      linked
-        ? `<li><strong>Facebook Page:</strong> ${escapeHtml(linked.pageName || linked.pageId)}</li>
-           <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(linked.igId)}</code></li>`
+      selected
+        ? `<li><strong>Facebook Page:</strong> ${escapeHtml(selected.pageName || selected.pageId)}</li>
+           <li><strong>Instagram professional account id (<code>externalAccountId</code>):</strong> <code>${escapeHtml(selected.igId)}</code></li>`
         : `<li><strong>Instagram account:</strong> none — connect an Instagram professional account to a Facebook Page, then log in again.</li>`
     }
     ${
