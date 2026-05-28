@@ -33,7 +33,10 @@ router.post(
   verifyMetaSignature,
   async (req: RawBodyRequest, res: Response): Promise<void> => {
     try {
+      console.log('[instagram:webhook] incoming POST /webhooks/instagram');
+
       if (!req.rawBody) {
+        console.warn('[instagram:webhook] missing raw body');
         res.sendStatus(400);
         return;
       }
@@ -43,12 +46,17 @@ router.post(
       ) as InstagramWebhookPayload;
 
       if (payload.object !== 'instagram') {
+        console.log('[instagram:webhook] ignored non-instagram object');
         res.sendStatus(200);
         return;
       }
 
       const inbound = parseInstagramWebhook(payload);
+      console.log(
+        `[instagram:webhook] parsed messages=${inbound.length}`,
+      );
       await processInboundMessages(inbound);
+      console.log('[instagram:webhook] processed successfully');
 
       res.sendStatus(200);
     } catch (error) {
