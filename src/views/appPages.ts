@@ -176,6 +176,10 @@ const APP_STYLES = `
     padding: 24px 20px 16px; gap: 8px;
   }
   .chart-bar { flex: 1; background: #e8f7f5; border-radius: 6px 6px 0 0; min-height: 8px; }
+  .live-badge {
+    display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill);
+    background: #ecfdf5; color: #047857; font-size: 0.75rem; font-weight: 600;
+  }
 `;
 
 export type AppTab = 'today' | 'insights' | 'messages' | 'developers';
@@ -315,10 +319,10 @@ function conversationButtons(
 }
 
 export function renderMessagesPanel(opts: {
-  profile: Profile;
   conversations: Conversation[];
   flash?: { type: 'ok' | 'err'; message: string };
   activeConversationId?: string;
+  accountLabel?: string;
 }): { title: string; html: string } {
   const convHtml = conversationButtons(opts.conversations, opts.activeConversationId);
   const threadPane = opts.activeConversationId
@@ -330,18 +334,18 @@ export function renderMessagesPanel(opts: {
     html: `${flashHtml(opts.flash)}
       <div class="page-head">
         <h1>Messages</h1>
-        <p>${escapeHtml(todayDateLine())}</p>
+        <p>${escapeHtml(todayDateLine())} · <span class="live-badge">Live</span></p>
       </div>
       <div class="stat-row">
         <div class="card stat"><label>Open conversations</label><strong>${opts.conversations.length}</strong></div>
         <div class="card stat"><label>Channel</label><strong>Instagram</strong></div>
         <div class="card stat"><label>Status</label><strong>Connected</strong></div>
-        <div class="card stat"><label>Account</label><strong>${escapeHtml(opts.profile.igUsername ? `@${opts.profile.igUsername}` : opts.profile.pageName)}</strong></div>
+        <div class="card stat"><label>Account</label><strong>${escapeHtml(opts.accountLabel || 'Connected')}</strong></div>
       </div>
       <div class="card inbox-layout">
         <div>
           <div class="panel-head">Inbox</div>
-          ${convHtml}
+          <div id="conv-list">${convHtml}</div>
         </div>
         <div id="thread-pane">${threadPane}</div>
       </div>`,
@@ -376,11 +380,11 @@ export function renderThreadPanel(opts: {
       <div class="card inbox-layout">
         <div>
           <div class="panel-head">Inbox</div>
-          ${convHtml}
+          <div id="conv-list">${convHtml}</div>
         </div>
         <div id="thread-pane">
           <div class="panel-head">${escapeHtml(opts.participantLabel)}</div>
-          <div class="thread-messages">${bubbles || '<div class="empty">No messages yet.</div>'}</div>
+          <div class="thread-messages" id="thread-messages">${bubbles || '<div class="empty">No messages yet.</div>'}</div>
           <form class="send-bar" data-send-form data-conversation-id="${escapeHtml(opts.conversationId)}">
             <input type="text" name="message" placeholder="Write a reply..." required autocomplete="off" />
             <button type="submit">Send</button>

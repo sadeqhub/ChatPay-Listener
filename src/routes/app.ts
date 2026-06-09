@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../services/db';
+import { fetchConnectedProfile, sendInstagramMessage } from '../services/instagramGraph';
 import {
-  fetchConnectedProfile,
-  fetchConversations,
-  fetchThreadMessages,
-  sendInstagramMessage,
-} from '../services/instagramGraph';
+  getDbThread,
+  getStoreMeta,
+  listDbConversations,
+  saveOutboundMessage,
+} from '../services/inboxStore';
 import {
   AppTab,
   renderAppError,
@@ -49,13 +50,6 @@ function parseFlash(req: Request): { type: 'ok' | 'err'; message: string } | und
   return { type, message };
 }
 
-async function loadChannelAccount(storeId: string) {
-  return prisma.channelAccount.findFirst({
-    where: { storeId, platform: INSTAGRAM },
-    include: { store: { select: { title: true } } },
-  });
-}
-
 function connectUrl(storeId: string): string {
   const userId = process.env.OAUTH_USER_ID?.trim() || 'cmh0siw57002ewm2g3nd94tkb';
   return absoluteApiPath(
@@ -64,10 +58,7 @@ function connectUrl(storeId: string): string {
 }
 
 function reconnectUrl(storeId: string): string {
-  const userId = process.env.OAUTH_USER_ID?.trim() || 'cmh0siw57002ewm2g3nd94tkb';
-  return absoluteApiPath(
-    `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
-  );
+  return connectUrl(storeId);
 }
 
 function inboxPath(query: Record<string, string>): string {
@@ -86,71 +77,18 @@ function storeQuery(storeId: string): string {
   return `storeId=${encodeURIComponent(storeId)}`;
 }
 
-type InboxContext = {
-  storeId: string;
-  storeTitle?: string;
-  profile: Awaited<ReturnType<typeof fetchConnectedProfile>>;
-  conversations: Awaited<ReturnType<typeof fetchConversations>>;
-};
-
-async function loadInboxContext(storeId: string): Promise<InboxContext | null> {
-  const account = await loadChannelAccount(storeId);
-  if (!account?.accessToken) return null;
-
-  const profile = await fetchConnectedProfile(
-    account.accessToken,
-    account.externalAccountId ?? undefined,
-  );
-  const conversations = await fetchConversations(
-    profile.pageId,
-    account.accessToken,
-    profile.igId,
-  );
-
-  return {
-    storeId,
-    storeTitle: account.store?.title,
-    profile,
-    conversations,
-  };
-}
-
-async function sendStoreMessage(
-  storeId: string,
-  conversationId: string,
-  text: string,
-): Promise<void> {
-  const account = await loadChannelAccount(storeId);
-  if (!account?.accessToken) {
-    throw new Error('Instagram not connected');
-  }
-
-  const profile = await fetchConnectedProfile(
-    account.accessToken,
-    account.externalAccountId ?? undefined,
-  );
-  const conversations = await fetchConversations(
-    profile.pageId,
-    account.accessToken,
-    profile.igId,
-  );
-  const conv = conversations.find((c) => c.id === conversationId);
-  if (!conv?.participantId) {
-    throw new Error('Could not resolve recipient');
-  }
-
-  await sendInstagramMessage(profile.pageId, account.accessToken, conv.participantId, text);
+function accountLabel(igId?: string): string {
+  return igId ? `IG ${igId.slice(-8)}` : 'Connected';
 }
 
 async function loadPanel(
   tab: AppTab,
   storeId: string,
+  connected: boolean,
+  igId: string | undefined,
   conversationId?: string,
   flash?: { type: 'ok' | 'err'; message: string },
 ) {
-  const ctx = await loadInboxContext(storeId);
-  const connected = Boolean(ctx);
-
   if (tab === 'developers') {
     return renderDevelopersPanel({
       connectUrl: connectUrl(storeId),
@@ -164,43 +102,38 @@ async function loadPanel(
   }
 
   if (tab === 'today') {
+    const conversations = connected ? await listDbConversations(storeId) : [];
     return renderTodayPanel({
-      conversationCount: ctx?.conversations.length ?? 0,
+      conversationCount: conversations.length,
       flash,
     });
   }
 
-  if (!ctx) {
+  if (!connected) {
     return renderNotConnectedPanel({ connectUrl: connectUrl(storeId) });
   }
 
-  if (conversationId) {
-    const account = await loadChannelAccount(storeId);
-    if (!account?.accessToken) {
-      return renderNotConnectedPanel({ connectUrl: connectUrl(storeId) });
-    }
+  const conversations = await listDbConversations(storeId);
 
-    const conv = ctx.conversations.find((c) => c.id === conversationId);
-    if (!conv) {
+  if (conversationId) {
+    const thread = await getDbThread(storeId, conversationId, igId);
+    if (!thread) {
       throw new Error('Conversation not found');
     }
 
-    const businessIds = new Set([ctx.profile.pageId, ctx.profile.igId, account.externalAccountId || '']);
-    const messages = await fetchThreadMessages(conversationId, account.accessToken, businessIds);
-
     return renderThreadPanel({
       conversationId,
-      participantLabel: conv.participantLabel,
-      messages,
-      conversations: ctx.conversations,
+      participantLabel: thread.conversation.participantLabel,
+      messages: thread.messages,
+      conversations,
       flash,
     });
   }
 
   return renderMessagesPanel({
-    profile: ctx.profile,
-    conversations: ctx.conversations,
+    conversations,
     flash,
+    accountLabel: accountLabel(igId),
   });
 }
 
@@ -215,20 +148,68 @@ async function resolveShellState(req: Request) {
     tab = 'messages';
   }
 
-  const ctx = await loadInboxContext(storeId);
-  const account = ctx ? null : await loadChannelAccount(storeId);
-  const panel = await loadPanel(tab, storeId, conversationId, flash);
+  const meta = await getStoreMeta(storeId, connectUrl(storeId));
+  const panel = await loadPanel(
+    tab,
+    storeId,
+    meta.connected,
+    meta.igId,
+    conversationId,
+    flash,
+  );
 
   return {
-    storeId,
-    storeTitle: ctx?.storeTitle ?? account?.store?.title,
+    storeId: meta.storeId,
+    storeTitle: meta.storeTitle,
     tab,
     conversationId,
-    profile: ctx?.profile ?? null,
-    connected: Boolean(ctx),
-    connectUrl: connectUrl(storeId),
+    profile: meta.igId ? { pageName: 'Instagram', igId: meta.igId, pageId: meta.igId } : null,
+    connected: meta.connected,
+    connectUrl: meta.connectUrl ?? connectUrl(storeId),
     panel,
   };
+}
+
+async function sendStoreMessage(
+  storeId: string,
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, storeId, platform: INSTAGRAM },
+  });
+  if (!conversation) {
+    throw new Error('Conversation not found');
+  }
+
+  const account = await prisma.channelAccount.findFirst({
+    where: { storeId, platform: INSTAGRAM },
+  });
+  if (!account?.accessToken) {
+    throw new Error('Instagram not connected');
+  }
+
+  const profile = await fetchConnectedProfile(
+    account.accessToken,
+    account.externalAccountId ?? undefined,
+  );
+
+  const result = await sendInstagramMessage(
+    profile.pageId,
+    account.accessToken,
+    conversation.senderId,
+    text,
+  );
+
+  await saveOutboundMessage({
+    storeId,
+    conversationId,
+    userId: account.userId,
+    senderId: profile.igId || profile.pageId,
+    recipientId: conversation.senderId,
+    text,
+    messageId: result.messageId || `out-${Date.now()}`,
+  });
 }
 
 async function handleAppShell(req: Request, res: Response): Promise<void> {
@@ -263,6 +244,15 @@ router.get('/inbox', (req: Request, res: Response): void => {
   void handleAppShell(req, res);
 });
 
+router.get('/api/app/meta', async (req: Request, res: Response): Promise<void> => {
+  const storeId = resolveStoreId(req);
+  const meta = await getStoreMeta(storeId, connectUrl(storeId));
+  res.json({
+    ...meta,
+    profile: meta.igId ? { pageName: 'Instagram', igId: meta.igId, pageId: meta.igId } : null,
+  });
+});
+
 router.get('/api/app/bootstrap', async (req: Request, res: Response): Promise<void> => {
   try {
     const state = await resolveShellState(req);
@@ -282,6 +272,46 @@ router.get('/api/app/bootstrap', async (req: Request, res: Response): Promise<vo
   }
 });
 
+router.get('/api/inbox/live', async (req: Request, res: Response): Promise<void> => {
+  const storeId = resolveStoreId(req);
+  const conversationId =
+    typeof req.query.conversation === 'string' ? req.query.conversation.trim() : undefined;
+
+  try {
+    if (conversationId) {
+      const account = await prisma.channelAccount.findFirst({
+        where: { storeId, platform: INSTAGRAM },
+        select: { externalAccountId: true },
+      });
+      const thread = await getDbThread(storeId, conversationId, account?.externalAccountId);
+      res.json({
+        serverTime: new Date().toISOString(),
+        conversations: [],
+        messages: [],
+        thread: thread
+          ? {
+              conversationId,
+              participantLabel: thread.conversation.participantLabel,
+              messages: thread.messages,
+            }
+          : null,
+      });
+      return;
+    }
+
+    const conversations = await listDbConversations(storeId);
+    res.json({
+      serverTime: new Date().toISOString(),
+      conversations,
+      messages: [],
+      thread: null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Live update failed';
+    res.status(500).json({ error: message });
+  }
+});
+
 router.get('/api/panels/:tab', async (req: Request, res: Response): Promise<void> => {
   const storeId = resolveStoreId(req);
   const tab = String(req.params.tab) as AppTab;
@@ -293,7 +323,8 @@ router.get('/api/panels/:tab', async (req: Request, res: Response): Promise<void
   }
 
   try {
-    const panel = await loadPanel(tab, storeId, undefined, flash);
+    const meta = await getStoreMeta(storeId, connectUrl(storeId));
+    const panel = await loadPanel(tab, storeId, meta.connected, meta.igId, undefined, flash);
     res.json(panel);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load panel';
@@ -307,7 +338,15 @@ router.get('/api/panels/messages/:conversationId', async (req: Request, res: Res
   const flash = parseFlash(req);
 
   try {
-    const panel = await loadPanel('messages', storeId, conversationId, flash);
+    const meta = await getStoreMeta(storeId, connectUrl(storeId));
+    const panel = await loadPanel(
+      'messages',
+      storeId,
+      meta.connected,
+      meta.igId,
+      conversationId,
+      flash,
+    );
     res.json(panel);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load conversation';
@@ -334,7 +373,7 @@ router.post('/api/messages/:conversationId/send', async (req: Request, res: Resp
       res.status(401).json({ error: message });
       return;
     }
-    if (message === 'Could not resolve recipient') {
+    if (message === 'Conversation not found' || message === 'Could not resolve recipient') {
       res.status(400).json({ error: message });
       return;
     }
@@ -386,7 +425,7 @@ router.post('/inbox/conversations/:conversationId/send', async (req: Request, re
       res.redirect(302, `/inbox?${storeQuery(storeId)}&tab=developers`);
       return;
     }
-    if (message === 'Could not resolve recipient') {
+    if (message === 'Conversation not found') {
       res.status(400).type('html').send(renderAppError('Send failed', message));
       return;
     }
