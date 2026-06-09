@@ -111,7 +111,7 @@ function decodeState(value: string): string | null {
 }
 
 function inboxRedirect(storeId: string): string {
-  return `/inbox?storeId=${encodeURIComponent(storeId)}&connected=1`;
+  return `/inbox?storeId=${encodeURIComponent(storeId)}&tab=messages&connected=1`;
 }
 
 function buildStatePayload(
