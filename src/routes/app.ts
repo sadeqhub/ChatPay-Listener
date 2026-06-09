@@ -17,6 +17,7 @@ import {
   renderThreadPanel,
   renderTodayPanel,
 } from '../views/appPages';
+import { absoluteApiPath, webAppBase } from '../lib/publicUrl';
 
 const router = Router();
 const INSTAGRAM = 'Instagram' as const;
@@ -57,7 +58,28 @@ async function loadChannelAccount(storeId: string) {
 
 function connectUrl(storeId: string): string {
   const userId = process.env.OAUTH_USER_ID?.trim() || 'cmh0siw57002ewm2g3nd94tkb';
-  return `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`;
+  return absoluteApiPath(
+    `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
+  );
+}
+
+function reconnectUrl(storeId: string): string {
+  const userId = process.env.OAUTH_USER_ID?.trim() || 'cmh0siw57002ewm2g3nd94tkb';
+  return absoluteApiPath(
+    `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`,
+  );
+}
+
+function inboxPath(query: Record<string, string>): string {
+  const qs = new URLSearchParams(query).toString();
+  return `/inbox${qs ? `?${qs}` : ''}`;
+}
+
+function redirectToWebApp(res: Response, query: Record<string, string>): boolean {
+  const web = webAppBase();
+  if (!web) return false;
+  res.redirect(302, `${web}${inboxPath(query)}`);
+  return true;
 }
 
 function storeQuery(storeId: string): string {
@@ -130,7 +152,11 @@ async function loadPanel(
   const connected = Boolean(ctx);
 
   if (tab === 'developers') {
-    return renderDevelopersPanel({ connectUrl: connectUrl(storeId), connected });
+    return renderDevelopersPanel({
+      connectUrl: connectUrl(storeId),
+      reconnectUrl: reconnectUrl(storeId),
+      connected,
+    });
   }
 
   if (tab === 'insights') {
@@ -178,31 +204,47 @@ async function loadPanel(
   });
 }
 
-async function handleAppShell(req: Request, res: Response): Promise<void> {
+async function resolveShellState(req: Request) {
   const storeId = resolveStoreId(req);
   let tab = resolveTab(req);
   const conversationId = resolveConversation(req);
 
   let flash = parseFlash(req);
   if (req.query.connected === '1' && !flash) {
-    flash = { type: 'ok', message: 'Instagram account connected successfully.' };
+    flash = { type: 'ok' as const, message: 'Instagram account connected successfully.' };
     tab = 'messages';
   }
 
+  const ctx = await loadInboxContext(storeId);
+  const account = ctx ? null : await loadChannelAccount(storeId);
+  const panel = await loadPanel(tab, storeId, conversationId, flash);
+
+  return {
+    storeId,
+    storeTitle: ctx?.storeTitle ?? account?.store?.title,
+    tab,
+    conversationId,
+    profile: ctx?.profile ?? null,
+    connected: Boolean(ctx),
+    connectUrl: connectUrl(storeId),
+    panel,
+  };
+}
+
+async function handleAppShell(req: Request, res: Response): Promise<void> {
   try {
-    const ctx = await loadInboxContext(storeId);
-    const panel = await loadPanel(tab, storeId, conversationId, flash);
+    const state = await resolveShellState(req);
 
     res.status(200).type('html').send(
       renderAppShell({
-        storeId,
-        storeTitle: ctx?.storeTitle ?? (await loadChannelAccount(storeId))?.store?.title,
-        initialTab: tab,
-        initialConversation: conversationId,
-        initialPanelHtml: panel.html,
-        initialTitle: panel.title,
-        profile: ctx?.profile,
-        connectUrl: connectUrl(storeId),
+        storeId: state.storeId,
+        storeTitle: state.storeTitle,
+        initialTab: state.tab,
+        initialConversation: state.conversationId,
+        initialPanelHtml: state.panel.html,
+        initialTitle: state.panel.title,
+        profile: state.profile ?? undefined,
+        connectUrl: state.connectUrl,
       }),
     );
   } catch (err) {
@@ -211,7 +253,34 @@ async function handleAppShell(req: Request, res: Response): Promise<void> {
   }
 }
 
-router.get('/inbox', handleAppShell);
+router.get('/inbox', (req: Request, res: Response): void => {
+  const storeId = resolveStoreId(req);
+  const query = Object.fromEntries(
+    Object.entries(req.query).map(([key, value]) => [key, String(value)]),
+  ) as Record<string, string>;
+  if (!query.storeId) query.storeId = storeId;
+  if (redirectToWebApp(res, query)) return;
+  void handleAppShell(req, res);
+});
+
+router.get('/api/app/bootstrap', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = await resolveShellState(req);
+    res.json({
+      storeId: state.storeId,
+      storeTitle: state.storeTitle,
+      tab: state.tab,
+      conversationId: state.conversationId ?? null,
+      profile: state.profile,
+      connected: state.connected,
+      connectUrl: state.connectUrl,
+      panel: state.panel,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load dashboard';
+    res.status(500).json({ error: message });
+  }
+});
 
 router.get('/api/panels/:tab', async (req: Request, res: Response): Promise<void> => {
   const storeId = resolveStoreId(req);
@@ -275,17 +344,24 @@ router.post('/api/messages/:conversationId/send', async (req: Request, res: Resp
 
 router.get('/integrations', (req, res) => {
   const storeId = resolveStoreId(req);
+  const query = { storeId, tab: 'developers' };
+  if (redirectToWebApp(res, query)) return;
   res.redirect(302, `/inbox?${storeQuery(storeId)}&tab=developers`);
 });
 
 router.get('/inbox/conversations/:conversationId', (req, res) => {
   const storeId = resolveStoreId(req);
-  const qs = new URLSearchParams({ storeId, tab: 'messages', conversation: String(req.params.conversationId) });
+  const query: Record<string, string> = {
+    storeId,
+    tab: 'messages',
+    conversation: String(req.params.conversationId),
+  };
   if (req.query.sent === '1') {
-    qs.set('flash', 'Message sent.');
-    qs.set('flashType', 'ok');
+    query.flash = 'Message sent.';
+    query.flashType = 'ok';
   }
-  res.redirect(302, `/inbox?${qs.toString()}`);
+  if (redirectToWebApp(res, query)) return;
+  res.redirect(302, `/inbox?${new URLSearchParams(query).toString()}`);
 });
 
 router.post('/inbox/conversations/:conversationId/send', async (req: Request, res: Response): Promise<void> => {

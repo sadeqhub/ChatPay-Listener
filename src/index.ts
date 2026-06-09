@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import instagramWebhooks from './routes/instagram';
 import oauthRoutes from './routes/oauth';
 import appRoutes from './routes/app';
+import { corsForWebApp } from './middleware/cors';
+import { webAppBase } from './lib/publicUrl';
 
 dotenv.config();
 
@@ -23,7 +25,14 @@ app.use('/webhooks/instagram', instagramWebhooks);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+app.use('/api', corsForWebApp);
+
 app.get('/', (_req, res) => {
+  const web = webAppBase();
+  if (web) {
+    res.redirect(302, `${web}/inbox`);
+    return;
+  }
   res.redirect(302, '/inbox');
 });
 

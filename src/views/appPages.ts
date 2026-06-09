@@ -272,6 +272,7 @@ export function renderInsightsPanel(): { title: string; html: string } {
 
 export function renderDevelopersPanel(opts: {
   connectUrl: string;
+  reconnectUrl: string;
   connected: boolean;
 }): { title: string; html: string } {
   const cta = opts.connected
@@ -289,7 +290,7 @@ export function renderDevelopersPanel(opts: {
         <h2>Instagram Direct Messages</h2>
         <p>Connect your Instagram Professional account to read and reply to customer messages from Wayl.</p>
         ${cta}
-        ${opts.connected ? `<br /><a class="btn-outline" href="/oauth.php" style="margin-top:14px;">Reconnect account</a>` : ''}
+        ${opts.connected ? `<br /><a class="btn-outline" href="${escapeHtml(opts.reconnectUrl)}" style="margin-top:14px;">Reconnect account</a>` : ''}
       </section>`,
   };
 }

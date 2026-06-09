@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wayl</title>
+  <link rel="stylesheet" href="/app.css" />
+  <script src="/config.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="main-nav">
+      <div class="nav-tabs">
+        <button type="button" data-tab="today">Today</button>
+        <button type="button" data-tab="insights">Insights</button>
+        <button type="button" data-tab="messages">Messages</button>
+        <button type="button" data-tab="developers">Developers</button>
+      </div>
+      <div class="nav-actions">
+        <a class="btn-store" href="https://wayl.io" target="_blank" rel="noopener">Go to Store</a>
+      </div>
+    </nav>
+    <div class="layout">
+      <main id="app-main"><div class="panel-loading">Loading...</div></main>
+      <aside id="app-sidebar">
+        <div class="card sidebar-card">
+          <div class="store-row">
+            <div class="store-avatar" id="store-avatar">W</div>
+            <div>
+              <h3 id="store-title">Store</h3>
+              <p id="store-url">store.thewayl.com</p>
+            </div>
+          </div>
+          <div id="ig-sidebar"><p class="sidebar-label">Instagram</p><p class="sidebar-value">Loading...</p></div>
+        </div>
+        <div class="card sidebar-card">
+          <p class="sidebar-label">Quick links</p>
+          <button type="button" class="btn-outline" data-sidebar-tab="developers" style="width:100%;margin-bottom:8px;">Integrations</button>
+          <a class="btn-outline" href="https://wayl.io" target="_blank" rel="noopener" style="width:100%;">Settings</a>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <nav class="dock">
+    <button type="button" data-dock="home">Home</button>
+    <a href="https://wayl.io" target="_blank" rel="noopener">Store</a>
+    <button type="button" data-dock="manage">Manage</button>
+    <button type="button" data-dock="developers">Menu</button>
+  </nav>
+  <script src="/app.js"></script>
+</body>
+</html>

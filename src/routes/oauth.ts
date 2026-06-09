@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import prisma from '../services/db';
+import { inboxAppUrl, webAppBase } from '../lib/publicUrl';
 import {
   renderConnectPage,
   renderErrorPage,
@@ -111,7 +112,7 @@ function decodeState(value: string): string | null {
 }
 
 function inboxRedirect(storeId: string): string {
-  return `/inbox?storeId=${encodeURIComponent(storeId)}&tab=messages&connected=1`;
+  return inboxAppUrl(storeId, { connected: '1' });
 }
 
 function buildStatePayload(
@@ -709,7 +710,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           persistedWarning: persisted.warning,
           webhookStatus,
         }),
-        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
       }),
     );
     return;
@@ -825,7 +826,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
                   status: 'warn' as const,
                 },
               ],
-          primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
+          primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
         }),
       );
       return;
@@ -856,7 +857,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           channelAccountId,
           persistedWarning: persisted.warning,
         }),
-        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
       }),
     );
   } catch (err) {
