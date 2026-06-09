@@ -110,8 +110,8 @@ function decodeState(value: string): string | null {
   }
 }
 
-function demoInboxRedirect(storeId: string): string {
-  return `/demo/inbox?storeId=${encodeURIComponent(storeId)}&connected=1`;
+function inboxRedirect(storeId: string): string {
+  return `/inbox?storeId=${encodeURIComponent(storeId)}&connected=1`;
 }
 
 function buildStatePayload(
@@ -691,7 +691,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
 
     const { storeId } = resolvePersistContext(session.persistContext);
     if (persisted.channelAccountId && storeId) {
-      res.redirect(302, demoInboxRedirect(storeId));
+      res.redirect(302, inboxRedirect(storeId));
       return;
     }
 
@@ -709,7 +709,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           persistedWarning: persisted.warning,
           webhookStatus,
         }),
-        primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
       }),
     );
     return;
@@ -799,7 +799,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
 
       const { storeId } = resolvePersistContext(persistContext);
       if (channelAccountId && storeId && selected) {
-        res.redirect(302, demoInboxRedirect(storeId));
+        res.redirect(302, inboxRedirect(storeId));
         return;
       }
 
@@ -825,7 +825,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
                   status: 'warn' as const,
                 },
               ],
-          primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
+          primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
         }),
       );
       return;
@@ -843,7 +843,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
 
     const { storeId } = resolvePersistContext(persistContext);
     if (channelAccountId && storeId) {
-      res.redirect(302, demoInboxRedirect(storeId));
+      res.redirect(302, inboxRedirect(storeId));
       return;
     }
 
@@ -856,7 +856,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           channelAccountId,
           persistedWarning: persisted.warning,
         }),
-        primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : '/inbox' },
       }),
     );
   } catch (err) {

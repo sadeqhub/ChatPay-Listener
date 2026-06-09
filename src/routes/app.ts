@@ -7,11 +7,11 @@ import {
   sendInstagramMessage,
 } from '../services/instagramGraph';
 import {
-  renderDemoError,
-  renderDemoLanding,
+  renderAppError,
   renderInboxPage,
+  renderIntegrationsPage,
   renderThreadPage,
-} from '../views/demoPages';
+} from '../views/appPages';
 
 const router = Router();
 const INSTAGRAM = 'Instagram' as const;
@@ -32,28 +32,19 @@ async function loadChannelAccount(storeId: string) {
 
 function connectUrl(storeId: string): string {
   const userId = process.env.OAUTH_USER_ID?.trim() || 'cmh0siw57002ewm2g3nd94tkb';
-  return `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}&demo=1`;
+  return `/oauth.php?storeId=${encodeURIComponent(storeId)}&userId=${encodeURIComponent(userId)}`;
 }
 
-router.get('/demo', async (req: Request, res: Response): Promise<void> => {
-  const storeId = resolveStoreId(req);
-  const account = await loadChannelAccount(storeId);
+function storeQuery(storeId: string): string {
+  return `storeId=${encodeURIComponent(storeId)}`;
+}
 
-  res.status(200).type('html').send(
-    renderDemoLanding({
-      connectUrl: connectUrl(storeId),
-      storeId,
-      connected: Boolean(account?.accessToken && account.externalAccountId),
-    }),
-  );
-});
-
-router.get('/demo/inbox', async (req: Request, res: Response): Promise<void> => {
+async function handleInbox(req: Request, res: Response): Promise<void> {
   const storeId = resolveStoreId(req);
   const account = await loadChannelAccount(storeId);
 
   if (!account?.accessToken) {
-    res.redirect(302, connectUrl(storeId));
+    res.redirect(302, `/integrations?${storeQuery(storeId)}`);
     return;
   }
 
@@ -70,7 +61,7 @@ router.get('/demo/inbox', async (req: Request, res: Response): Promise<void> => 
 
     const connected = req.query.connected === '1';
     const flash = connected
-      ? { type: 'ok' as const, message: 'Instagram account connected. Select a conversation and send a message.' }
+      ? { type: 'ok' as const, message: 'Instagram account connected successfully.' }
       : undefined;
 
     res.status(200).type('html').send(
@@ -78,22 +69,23 @@ router.get('/demo/inbox', async (req: Request, res: Response): Promise<void> => 
         profile,
         conversations,
         storeId,
+        storeTitle: account.store?.title,
         flash,
       }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load inbox';
-    res.status(500).type('html').send(renderDemoError('Inbox unavailable', message));
+    res.status(500).type('html').send(renderAppError('Inbox unavailable', message));
   }
-});
+}
 
-router.get('/demo/conversations/:conversationId', async (req: Request, res: Response): Promise<void> => {
+async function handleThread(req: Request, res: Response): Promise<void> {
   const storeId = resolveStoreId(req);
   const conversationId = String(req.params.conversationId);
   const account = await loadChannelAccount(storeId);
 
   if (!account?.accessToken) {
-    res.redirect(302, connectUrl(storeId));
+    res.redirect(302, `/integrations?${storeQuery(storeId)}`);
     return;
   }
 
@@ -109,7 +101,7 @@ router.get('/demo/conversations/:conversationId', async (req: Request, res: Resp
     );
     const conv = conversations.find((c) => c.id === conversationId);
     if (!conv) {
-      res.status(404).type('html').send(renderDemoError('Conversation not found', conversationId));
+      res.status(404).type('html').send(renderAppError('Conversation not found', conversationId));
       return;
     }
 
@@ -123,38 +115,32 @@ router.get('/demo/conversations/:conversationId', async (req: Request, res: Resp
         profile,
         conversationId,
         participantLabel: conv.participantLabel,
-        participantId: conv.participantId,
         messages,
+        conversations,
         storeId,
-        sentText: sent,
-        flash: sent
-          ? {
-              type: 'ok',
-              message:
-                'Message sent successfully from ChatPay. Switch to the Instagram app to confirm the same text appears in this thread.',
-            }
-          : undefined,
+        storeTitle: account.store?.title,
+        flash: sent ? { type: 'ok', message: 'Message sent.' } : undefined,
       }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load conversation';
-    res.status(500).type('html').send(renderDemoError('Thread unavailable', message));
+    res.status(500).type('html').send(renderAppError('Thread unavailable', message));
   }
-});
+}
 
-router.post('/demo/conversations/:conversationId/send', async (req: Request, res: Response): Promise<void> => {
+async function handleSend(req: Request, res: Response): Promise<void> {
   const storeId = resolveStoreId(req);
   const conversationId = String(req.params.conversationId);
   const text = typeof req.body.message === 'string' ? req.body.message.trim() : '';
 
   if (!text) {
-    res.redirect(302, `/demo/conversations/${encodeURIComponent(conversationId)}?storeId=${encodeURIComponent(storeId)}`);
+    res.redirect(302, `/inbox/conversations/${encodeURIComponent(conversationId)}?${storeQuery(storeId)}`);
     return;
   }
 
   const account = await loadChannelAccount(storeId);
   if (!account?.accessToken) {
-    res.redirect(302, connectUrl(storeId));
+    res.redirect(302, `/integrations?${storeQuery(storeId)}`);
     return;
   }
 
@@ -170,7 +156,7 @@ router.post('/demo/conversations/:conversationId/send', async (req: Request, res
     );
     const conv = conversations.find((c) => c.id === conversationId);
     if (!conv?.participantId) {
-      res.status(400).type('html').send(renderDemoError('Send failed', 'Could not resolve recipient.'));
+      res.status(400).type('html').send(renderAppError('Send failed', 'Could not resolve recipient.'));
       return;
     }
 
@@ -178,12 +164,47 @@ router.post('/demo/conversations/:conversationId/send', async (req: Request, res
 
     res.redirect(
       302,
-      `/demo/conversations/${encodeURIComponent(conversationId)}?storeId=${encodeURIComponent(storeId)}&sent=${encodeURIComponent(text)}`,
+      `/inbox/conversations/${encodeURIComponent(conversationId)}?${storeQuery(storeId)}&sent=1`,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Send failed';
-    res.status(500).type('html').send(renderDemoError('Send failed', message));
+    res.status(500).type('html').send(renderAppError('Send failed', message));
   }
+}
+
+router.get('/integrations', async (req: Request, res: Response): Promise<void> => {
+  const storeId = resolveStoreId(req);
+  const account = await loadChannelAccount(storeId);
+
+  res.status(200).type('html').send(
+    renderIntegrationsPage({
+      connectUrl: connectUrl(storeId),
+      storeTitle: account?.store?.title,
+      connected: Boolean(account?.accessToken && account.externalAccountId),
+    }),
+  );
 });
+
+router.get('/inbox', handleInbox);
+router.get('/inbox/conversations/:conversationId', handleThread);
+router.post('/inbox/conversations/:conversationId/send', handleSend);
+
+router.get('/demo', (req, res) => {
+  const storeId = resolveStoreId(req);
+  res.redirect(302, `/integrations?${storeQuery(storeId)}`);
+});
+router.get('/demo/inbox', (req, res) => {
+  const storeId = resolveStoreId(req);
+  const qs = new URLSearchParams(req.query as Record<string, string>);
+  qs.set('storeId', storeId);
+  res.redirect(302, `/inbox?${qs.toString()}`);
+});
+router.get('/demo/conversations/:conversationId', (req, res) => {
+  const storeId = resolveStoreId(req);
+  const qs = new URLSearchParams(req.query as Record<string, string>);
+  qs.set('storeId', storeId);
+  res.redirect(302, `/inbox/conversations/${encodeURIComponent(String(req.params.conversationId))}?${qs.toString()}`);
+});
+router.post('/demo/conversations/:conversationId/send', handleSend);
 
 export default router;

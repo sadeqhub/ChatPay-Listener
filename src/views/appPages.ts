@@ -1,0 +1,405 @@
+import { escapeHtml } from './chatpayAuthPages';
+
+const APP_STYLES = `
+  :root {
+    --bg: #f3f3f5;
+    --surface: #ffffff;
+    --text: #111111;
+    --muted: #6b7280;
+    --border: #e8e8ec;
+    --teal: #2db8a8;
+    --teal-dark: #249688;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-pill: 999px;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .app-shell { max-width: 1320px; margin: 0 auto; padding: 20px 24px 100px; }
+  .main-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .nav-tabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .nav-tabs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: var(--radius-pill);
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 500;
+  }
+  .nav-tabs a.active { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); border: 1px solid var(--border); }
+  .nav-actions { display: flex; align-items: center; gap: 10px; }
+  .icon-btn {
+    width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); display: grid; place-items: center; color: var(--muted); text-decoration: none;
+  }
+  .btn-store {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px;
+    border-radius: var(--radius-pill); background: var(--teal); color: #fff;
+    text-decoration: none; font-weight: 600; font-size: 0.92rem; border: none;
+  }
+  .page-head { margin-bottom: 20px; }
+  .page-head h1 { margin: 0 0 6px; font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; }
+  .page-head p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  .layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+  }
+  .sidebar-card { padding: 18px; margin-bottom: 14px; }
+  .store-row { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .store-avatar {
+    width: 44px; height: 44px; border-radius: 50%; background: #eef6ff;
+    display: grid; place-items: center; font-weight: 700; color: #2563eb; flex-shrink: 0;
+  }
+  .store-row h3 { margin: 0 0 2px; font-size: 0.95rem; }
+  .store-row p { margin: 0; font-size: 0.82rem; color: var(--muted); }
+  .sidebar-label { font-size: 0.78rem; color: var(--muted); margin: 0 0 6px; }
+  .sidebar-value { font-size: 0.88rem; margin: 0 0 12px; }
+  .ig-connected {
+    display: flex; align-items: center; gap: 10px; padding: 12px;
+    background: #f8fafc; border-radius: var(--radius-md); margin-top: 8px;
+  }
+  .ig-dot {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+    display: grid; place-items: center; color: #fff; font-size: 0.7rem; font-weight: 700;
+  }
+  .btn-dark {
+    display: block; width: 100%; padding: 12px 16px; border-radius: var(--radius-pill);
+    background: #111; color: #fff; text-align: center; text-decoration: none;
+    font-weight: 600; font-size: 0.9rem; border: none; cursor: pointer;
+  }
+  .btn-outline {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 16px; border-radius: var(--radius-pill); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); text-decoration: none; font-size: 0.88rem; font-weight: 600;
+  }
+  .inbox-layout { display: grid; grid-template-columns: 300px 1fr; min-height: 520px; overflow: hidden; }
+  @media (max-width: 800px) { .inbox-layout { grid-template-columns: 1fr; } }
+  .panel-head { padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.92rem; }
+  .conv-item {
+    display: block; padding: 14px 18px; border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit; transition: background 0.12s;
+  }
+  .conv-item:hover, .conv-item.active { background: #f8f9fb; }
+  .conv-item h3 { margin: 0 0 4px; font-size: 0.92rem; font-weight: 600; }
+  .conv-item p { margin: 0; font-size: 0.82rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-item time { font-size: 0.72rem; color: var(--muted); }
+  .thread-messages {
+    padding: 20px; display: flex; flex-direction: column; gap: 12px;
+    min-height: 380px; max-height: 500px; overflow-y: auto;
+  }
+  .bubble { max-width: 72%; padding: 12px 16px; border-radius: 18px; font-size: 0.92rem; line-height: 1.45; }
+  .bubble.them { align-self: flex-start; background: #f0f1f4; }
+  .bubble.us { align-self: flex-end; background: #111; color: #fff; }
+  .bubble-meta { font-size: 0.72rem; opacity: 0.65; margin-top: 4px; }
+  .send-bar {
+    display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--border); background: #fafafa;
+  }
+  .send-bar input {
+    flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+    font-size: 0.92rem; outline: none; background: #fff;
+  }
+  .send-bar input:focus { border-color: #111; }
+  .send-bar button {
+    padding: 12px 22px; border-radius: var(--radius-pill); background: #111; color: #fff;
+    border: none; font-weight: 600; cursor: pointer; font-size: 0.92rem;
+  }
+  .alert { padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 16px; font-size: 0.88rem; }
+  .alert.ok { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .alert.err { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); font-size: 0.92rem; }
+  .connect-card { padding: 48px 32px; text-align: center; }
+  .connect-icon {
+    width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 18px;
+    background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.5rem;
+  }
+  .connect-card h2 { margin: 0 0 10px; font-size: 1.5rem; }
+  .connect-card p { margin: 0 auto 24px; max-width: 420px; color: var(--muted); line-height: 1.55; }
+  .dock {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+    background: rgba(255,255,255,0.95); border: 1px solid var(--border);
+    border-radius: var(--radius-pill); box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  }
+  .dock a, .dock span {
+    display: grid; place-items: center; min-width: 72px; padding: 8px 10px;
+    border-radius: var(--radius-pill); text-decoration: none; font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .dock a.active, .dock span.active { background: #111; color: #fff; }
+  .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { padding: 16px 18px; }
+  .stat label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; }
+  .stat strong { font-size: 1.25rem; letter-spacing: -0.02em; }
+`;
+
+type LayoutOpts = {
+  title: string;
+  content: string;
+  activeNav?: 'today' | 'insights' | 'messages' | 'developers';
+  storeTitle?: string;
+  storeUrl?: string;
+  sidebarExtra?: string;
+};
+
+function appLayout(opts: LayoutOpts): string {
+  const nav = (id: string, href: string, label: string, icon: string) =>
+    `<a href="${href}" class="${opts.activeNav === id ? 'active' : ''}">${icon} ${label}</a>`;
+
+  const sidebar = opts.storeTitle
+    ? `<aside>
+        <div class="card sidebar-card">
+          <div class="store-row">
+            <div class="store-avatar">${escapeHtml(opts.storeTitle.slice(0, 1).toUpperCase())}</div>
+            <div>
+              <h3>${escapeHtml(opts.storeTitle)}</h3>
+              <p>${escapeHtml(opts.storeUrl || `${opts.storeTitle}.thewayl.com`)}</p>
+            </div>
+          </div>
+          ${opts.sidebarExtra || ''}
+        </div>
+        <div class="card sidebar-card">
+          <p class="sidebar-label">Quick links</p>
+          <a class="btn-outline" href="/integrations" style="width:100%;margin-bottom:8px;">Integrations</a>
+          <a class="btn-outline" href="https://wayl.io" target="_blank" rel="noopener" style="width:100%;">Settings</a>
+        </div>
+      </aside>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(opts.title)} · Wayl</title>
+  <style>${APP_STYLES}</style>
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="main-nav">
+      <div class="nav-tabs">
+        ${nav('today', '/inbox', 'Today', '☀')}
+        ${nav('insights', '/inbox', 'Insights', '📊')}
+        ${nav('messages', '/inbox', 'Messages', '💬')}
+        ${nav('developers', '/integrations', 'Developers', '⌘')}
+      </div>
+      <div class="nav-actions">
+        <a class="icon-btn" href="/inbox" aria-label="Search">⌕</a>
+        <a class="icon-btn" href="/inbox" aria-label="Notifications">🔔</a>
+        <a class="btn-store" href="https://wayl.io" target="_blank" rel="noopener">Go to Store</a>
+      </div>
+    </nav>
+    <div class="layout">
+      <main>${opts.content}</main>
+      ${sidebar}
+    </div>
+  </div>
+  <nav class="dock">
+    <a href="/inbox" class="${opts.activeNav === 'today' || opts.activeNav === 'messages' ? 'active' : ''}">Home</a>
+    <a href="https://wayl.io" target="_blank" rel="noopener">Store</a>
+    <a href="/inbox">Manage</a>
+    <span>Menu</span>
+  </nav>
+</body>
+</html>`;
+}
+
+function igSidebar(profile?: { igUsername?: string; igId: string; pageName: string }): string {
+  if (!profile) {
+    return `<p class="sidebar-label">Instagram</p><p class="sidebar-value">Not connected</p>`;
+  }
+  const handle = profile.igUsername ? `@${profile.igUsername}` : profile.pageName;
+  return `<p class="sidebar-label">Instagram</p>
+    <div class="ig-connected">
+      <div class="ig-dot">IG</div>
+      <div>
+        <strong style="font-size:0.88rem;">${escapeHtml(handle)}</strong>
+        <p style="margin:2px 0 0;font-size:0.75rem;color:var(--muted);">ID ${escapeHtml(profile.igId)}</p>
+      </div>
+    </div>`;
+}
+
+export function renderIntegrationsPage(opts: {
+  connectUrl: string;
+  storeTitle?: string;
+  connected?: boolean;
+}): string {
+  const cta = opts.connected
+    ? `<a class="btn-dark" href="/inbox">Open Messages</a>`
+    : `<a class="btn-dark" href="${escapeHtml(opts.connectUrl)}">Connect Instagram</a>`;
+
+  return appLayout({
+    title: 'Integrations',
+    activeNav: 'developers',
+    storeTitle: opts.storeTitle,
+    content: `<div class="page-head">
+        <h1>Integrations</h1>
+        <p>Connect channels and manage your store messaging.</p>
+      </div>
+      <section class="card connect-card">
+        <div class="connect-icon">◎</div>
+        <h2>Instagram Direct Messages</h2>
+        <p>Connect your Instagram Professional account to read and reply to customer messages from Wayl.</p>
+        ${cta}
+        ${opts.connected ? `<br /><a class="btn-outline" href="/oauth.php" style="margin-top:14px;">Reconnect account</a>` : ''}
+      </section>`,
+  });
+}
+
+export function renderInboxPage(opts: {
+  profile: { pageName: string; igUsername?: string; igId: string; pageId: string };
+  conversations: Array<{
+    id: string;
+    participantLabel: string;
+    snippet?: string;
+    updatedTime?: string;
+  }>;
+  storeId?: string;
+  storeTitle?: string;
+  flash?: { type: 'ok' | 'err'; message: string };
+  activeConversationId?: string;
+}): string {
+  const qs = opts.storeId ? `storeId=${encodeURIComponent(opts.storeId)}` : '';
+  const flash = opts.flash ? `<div class="alert ${opts.flash.type}">${escapeHtml(opts.flash.message)}</div>` : '';
+
+  const convHtml =
+    opts.conversations.length === 0
+      ? '<div class="empty">No conversations yet. When customers message you on Instagram, they will appear here.</div>'
+      : opts.conversations
+          .map(
+            (c) =>
+              `<a class="conv-item${c.id === opts.activeConversationId ? ' active' : ''}" href="/inbox/conversations/${encodeURIComponent(c.id)}${qs ? `?${qs}` : ''}">
+                <h3>${escapeHtml(c.participantLabel)}</h3>
+                <p>${escapeHtml(c.snippet || 'View conversation')}</p>
+                ${c.updatedTime ? `<time>${escapeHtml(new Date(c.updatedTime).toLocaleString())}</time>` : ''}
+              </a>`,
+          )
+          .join('');
+
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  return appLayout({
+    title: 'Messages',
+    activeNav: 'messages',
+    storeTitle: opts.storeTitle,
+    sidebarExtra: igSidebar(opts.profile),
+    content: `${flash}
+      <div class="page-head">
+        <h1>Messages</h1>
+        <p>${escapeHtml(today)}</p>
+      </div>
+      <div class="stat-row">
+        <div class="card stat"><label>Open conversations</label><strong>${opts.conversations.length}</strong></div>
+        <div class="card stat"><label>Channel</label><strong>Instagram</strong></div>
+        <div class="card stat"><label>Status</label><strong>Connected</strong></div>
+      </div>
+      <div class="card inbox-layout">
+        <div>
+          <div class="panel-head">Inbox</div>
+          ${convHtml}
+        </div>
+        <div>
+          <div class="empty">Select a conversation to view and reply.</div>
+        </div>
+      </div>`,
+  });
+}
+
+export function renderThreadPage(opts: {
+  profile: { pageName: string; igUsername?: string; igId: string };
+  conversationId: string;
+  participantLabel: string;
+  messages: Array<{ text: string; fromLabel: string; isFromBusiness: boolean; createdTime?: string }>;
+  storeId?: string;
+  storeTitle?: string;
+  conversations: Array<{ id: string; participantLabel: string; snippet?: string; updatedTime?: string }>;
+  flash?: { type: 'ok' | 'err'; message: string };
+}): string {
+  const qs = opts.storeId ? `storeId=${encodeURIComponent(opts.storeId)}` : '';
+  const flash = opts.flash ? `<div class="alert ${opts.flash.type}">${escapeHtml(opts.flash.message)}</div>` : '';
+
+  const convHtml = opts.conversations
+    .map(
+      (c) =>
+        `<a class="conv-item${c.id === opts.conversationId ? ' active' : ''}" href="/inbox/conversations/${encodeURIComponent(c.id)}${qs ? `?${qs}` : ''}">
+          <h3>${escapeHtml(c.participantLabel)}</h3>
+          <p>${escapeHtml(c.snippet || 'View conversation')}</p>
+        </a>`,
+    )
+    .join('');
+
+  const bubbles = opts.messages
+    .map(
+      (m) =>
+        `<div class="bubble ${m.isFromBusiness ? 'us' : 'them'}">
+          ${escapeHtml(m.text)}
+          <div class="bubble-meta">${escapeHtml(m.fromLabel)}${m.createdTime ? ` · ${escapeHtml(new Date(m.createdTime).toLocaleString())}` : ''}</div>
+        </div>`,
+    )
+    .join('');
+
+  return appLayout({
+    title: opts.participantLabel,
+    activeNav: 'messages',
+    storeTitle: opts.storeTitle,
+    sidebarExtra: igSidebar(opts.profile),
+    content: `${flash}
+      <div class="page-head">
+        <h1>${escapeHtml(opts.participantLabel)}</h1>
+        <p><a href="/inbox${qs ? `?${qs}` : ''}" style="color:var(--muted);">← Back to inbox</a></p>
+      </div>
+      <div class="card inbox-layout">
+        <div>
+          <div class="panel-head">Inbox</div>
+          ${convHtml}
+        </div>
+        <div>
+          <div class="panel-head">${escapeHtml(opts.participantLabel)}</div>
+          <div class="thread-messages">${bubbles || '<div class="empty">No messages yet.</div>'}</div>
+          <form class="send-bar" method="post" action="/inbox/conversations/${encodeURIComponent(opts.conversationId)}/send${qs ? `?${qs}` : ''}">
+            <input type="text" name="message" placeholder="Write a reply…" required autocomplete="off" />
+            <button type="submit">Send</button>
+          </form>
+        </div>
+      </div>`,
+  });
+}
+
+export function renderAppError(title: string, message: string): string {
+  return appLayout({
+    title,
+    activeNav: 'messages',
+    content: `<section class="card connect-card">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      <a class="btn-dark" href="/inbox">Back to Messages</a>
+    </section>`,
+  });
+}

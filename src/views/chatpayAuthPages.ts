@@ -335,7 +335,7 @@ export function renderConnectPage(opts: {
         Connect Instagram
       </a>
       <br />
-      <a class="btn-secondary" href="/demo">App Review demo</a>
+      <a class="btn-secondary" href="/inbox">Open Messages</a>
     </section>`,
   );
 }
@@ -395,7 +395,7 @@ export function renderSelectPage(opts: {
       <h2 style="margin:0 0 8px;font-size:1.35rem;">Select Instagram Business account</h2>
       <p style="margin:0;color:var(--muted);">Choose the Facebook Page linked to the Instagram account ChatPay should manage.</p>
       <div class="page-grid">${tiles}</div>
-      <p style="margin-top:24px;"><a class="btn-secondary" href="/demo">← Back to demo</a></p>
+      <p style="margin-top:24px;"><a class="btn-secondary" href="/inbox">← Back to Messages</a></p>
     </section>`,
   );
 }
