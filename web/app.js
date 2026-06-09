@@ -160,13 +160,26 @@
     });
   }
 
+  function scrollThreadToBottom() {
+    var el = document.getElementById('thread-messages');
+    if (!el) return;
+    function scroll() {
+      el.scrollTop = el.scrollHeight;
+    }
+    scroll();
+    requestAnimationFrame(function () {
+      scroll();
+      requestAnimationFrame(scroll);
+    });
+  }
+
   function renderThreadMessages(messages) {
     var el = document.getElementById('thread-messages');
     if (!el) return;
     el.innerHTML = messages.length
       ? messages.map(messageBubbleHtml).join('')
       : '<div class="empty">No messages yet.</div>';
-    el.scrollTop = el.scrollHeight;
+    scrollThreadToBottom();
   }
 
   function bindPanel(root) {
@@ -226,6 +239,7 @@
     if (!main) return;
     main.innerHTML = html;
     bindPanel(main);
+    scrollThreadToBottom();
     syncLivePolling();
   }
 

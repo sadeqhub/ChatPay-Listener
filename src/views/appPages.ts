@@ -502,6 +502,20 @@ function appScript(storeId: string, initialTab: AppTab, initialConversation?: st
     if (!main) return;
     main.innerHTML = html;
     bindPanel(main);
+    scrollThreadToBottom();
+  }
+
+  function scrollThreadToBottom() {
+    var el = document.getElementById('thread-messages');
+    if (!el) return;
+    function scroll() {
+      el.scrollTop = el.scrollHeight;
+    }
+    scroll();
+    requestAnimationFrame(function () {
+      scroll();
+      requestAnimationFrame(scroll);
+    });
   }
 
   function fetchPanel(tab, conversation, flash) {
@@ -588,6 +602,7 @@ function appScript(storeId: string, initialTab: AppTab, initialConversation?: st
   if (activeConversation) {
     setNav('messages');
     bindPanel(document.getElementById('app-main'));
+    scrollThreadToBottom();
     history.replaceState({ tab: 'messages', conversation: activeConversation }, '', appUrl('messages', activeConversation));
   } else {
     setNav(activeTab);
