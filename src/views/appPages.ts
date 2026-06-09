@@ -165,8 +165,8 @@ type LayoutOpts = {
 };
 
 function appLayout(opts: LayoutOpts): string {
-  const nav = (id: string, href: string, label: string, icon: string) =>
-    `<a href="${href}" class="${opts.activeNav === id ? 'active' : ''}">${icon} ${label}</a>`;
+  const nav = (id: string, href: string, label: string) =>
+    `<a href="${href}" class="${opts.activeNav === id ? 'active' : ''}">${label}</a>`;
 
   const sidebar = opts.storeTitle
     ? `<aside>
@@ -200,14 +200,12 @@ function appLayout(opts: LayoutOpts): string {
   <div class="app-shell">
     <nav class="main-nav">
       <div class="nav-tabs">
-        ${nav('today', '/inbox', 'Today', '☀')}
-        ${nav('insights', '/inbox', 'Insights', '📊')}
-        ${nav('messages', '/inbox', 'Messages', '💬')}
-        ${nav('developers', '/integrations', 'Developers', '⌘')}
+        ${nav('today', '/inbox', 'Today')}
+        ${nav('insights', '/inbox', 'Insights')}
+        ${nav('messages', '/inbox', 'Messages')}
+        ${nav('developers', '/integrations', 'Developers')}
       </div>
       <div class="nav-actions">
-        <a class="icon-btn" href="/inbox" aria-label="Search">⌕</a>
-        <a class="icon-btn" href="/inbox" aria-label="Notifications">🔔</a>
         <a class="btn-store" href="https://wayl.io" target="_blank" rel="noopener">Go to Store</a>
       </div>
     </nav>
@@ -259,7 +257,7 @@ export function renderIntegrationsPage(opts: {
         <p>Connect channels and manage your store messaging.</p>
       </div>
       <section class="card connect-card">
-        <div class="connect-icon">◎</div>
+        <div class="connect-icon">IG</div>
         <h2>Instagram Direct Messages</h2>
         <p>Connect your Instagram Professional account to read and reply to customer messages from Wayl.</p>
         ${cta}
@@ -373,7 +371,7 @@ export function renderThreadPage(opts: {
     content: `${flash}
       <div class="page-head">
         <h1>${escapeHtml(opts.participantLabel)}</h1>
-        <p><a href="/inbox${qs ? `?${qs}` : ''}" style="color:var(--muted);">← Back to inbox</a></p>
+        <p><a href="/inbox${qs ? `?${qs}` : ''}" style="color:var(--muted);">Back to inbox</a></p>
       </div>
       <div class="card inbox-layout">
         <div>
@@ -384,7 +382,7 @@ export function renderThreadPage(opts: {
           <div class="panel-head">${escapeHtml(opts.participantLabel)}</div>
           <div class="thread-messages">${bubbles || '<div class="empty">No messages yet.</div>'}</div>
           <form class="send-bar" method="post" action="/inbox/conversations/${encodeURIComponent(opts.conversationId)}/send${qs ? `?${qs}` : ''}">
-            <input type="text" name="message" placeholder="Write a reply…" required autocomplete="off" />
+            <input type="text" name="message" placeholder="Write a reply..." required autocomplete="off" />
             <button type="submit">Send</button>
           </form>
         </div>

@@ -306,10 +306,10 @@ function layout(title: string, content: string): string {
     ${content}
   </div>
   <nav class="dock" aria-label="Quick navigation">
-    <span>⌂</span>
-    <span class="active">▦</span>
-    <span>🔔</span>
-    <span>📅</span>
+    <span>Home</span>
+    <span class="active">Integrations</span>
+    <span>Alerts</span>
+    <span>Calendar</span>
   </nav>
 </body>
 </html>`;
@@ -326,12 +326,11 @@ export function renderConnectPage(opts: {
   return layout(
     'Connect ChatPay Bot',
     `<section class="card hero-card">
-      <div class="hero-icon" aria-hidden="true">◎</div>
+      <div class="hero-icon" aria-hidden="true">IG</div>
       <h2>Connect Instagram</h2>
       <p>Link your Instagram Professional account so ChatPay can read and send Direct Messages on behalf of your business.</p>
       ${storeLine}
       <a class="btn-primary" href="${escapeHtml(opts.loginUrl)}">
-        <span aria-hidden="true">↗</span>
         Connect Instagram
       </a>
       <br />
@@ -367,7 +366,7 @@ export function renderResultPage(opts: {
   return layout(
     opts.title,
     `<section class="card hero-card">
-      <div class="hero-icon" aria-hidden="true">✓</div>
+      <div class="hero-icon" aria-hidden="true">OK</div>
       <h2>${escapeHtml(opts.title)}</h2>
       <p>${escapeHtml(opts.subtitle)}</p>
       <ul class="detail-list">${rowsHtml}</ul>
@@ -395,7 +394,7 @@ export function renderSelectPage(opts: {
       <h2 style="margin:0 0 8px;font-size:1.35rem;">Select Instagram Business account</h2>
       <p style="margin:0;color:var(--muted);">Choose the Facebook Page linked to the Instagram account ChatPay should manage.</p>
       <div class="page-grid">${tiles}</div>
-      <p style="margin-top:24px;"><a class="btn-secondary" href="/inbox">← Back to Messages</a></p>
+      <p style="margin-top:24px;"><a class="btn-secondary" href="/inbox">Back to Messages</a></p>
     </section>`,
   );
 }
