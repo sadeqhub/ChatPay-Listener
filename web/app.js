@@ -160,6 +160,19 @@
     });
   }
 
+  function showThreadFlash(message) {
+    var pane = document.getElementById('thread-pane');
+    if (!pane) return;
+    var existing = pane.querySelector('.alert.sync-flash');
+    if (existing) existing.remove();
+    var alert = document.createElement('div');
+    alert.className = 'alert ok sync-flash';
+    alert.style.margin = '12px 18px 0';
+    alert.textContent = message;
+    var messages = document.getElementById('thread-messages');
+    if (messages) pane.insertBefore(alert, messages);
+  }
+
   function scrollThreadToBottom() {
     var el = document.getElementById('thread-messages');
     if (!el) return;
@@ -194,6 +207,40 @@
     root.querySelectorAll('[data-conversation]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         openConversation(btn.getAttribute('data-conversation'));
+      });
+    });
+
+    root.querySelectorAll('[data-sync-conversation]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var convId = btn.getAttribute('data-sync-conversation');
+        if (!convId || btn.disabled) return;
+        btn.disabled = true;
+        var label = btn.textContent;
+        btn.textContent = 'Syncing...';
+        fetch(apiUrl('/api/inbox/conversations/' + encodeURIComponent(convId) + '/sync'), {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        })
+          .then(function (res) {
+            return res.json().then(function (data) {
+              return { ok: res.ok, data: data };
+            });
+          })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.data.error || 'Sync failed');
+            delete cache[cacheKey('messages', convId)];
+            if (result.data.thread && result.data.thread.messages) {
+              renderThreadMessages(result.data.thread.messages);
+            }
+            showThreadFlash(result.data.message || 'Synced from Instagram.');
+          })
+          .catch(function (err) {
+            alert(err.message || 'Sync failed');
+          })
+          .finally(function () {
+            btn.disabled = false;
+            btn.textContent = label;
+          });
       });
     });
 

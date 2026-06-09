@@ -108,6 +108,9 @@
   .inbox-layout { display: grid; grid-template-columns: 300px 1fr; min-height: 520px; overflow: hidden; }
   @media (max-width: 800px) { .inbox-layout { grid-template-columns: 1fr; } }
   .panel-head { padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.92rem; }
+  .panel-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .btn-sync { padding: 6px 12px; font-size: 0.78rem; white-space: nowrap; }
+  .btn-sync:disabled { opacity: 0.6; cursor: wait; }
   .conv-item {
     display: block; width: 100%; text-align: left; padding: 14px 18px; border: none; border-bottom: 1px solid var(--border);
     background: transparent; color: inherit; cursor: pointer; transition: background 0.12s; font-family: inherit;

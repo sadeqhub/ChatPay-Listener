@@ -111,6 +111,9 @@ const APP_STYLES = `
   .inbox-layout { display: grid; grid-template-columns: 300px 1fr; min-height: 520px; overflow: hidden; }
   @media (max-width: 800px) { .inbox-layout { grid-template-columns: 1fr; } }
   .panel-head { padding: 16px 18px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.92rem; }
+  .panel-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .btn-sync { padding: 6px 12px; font-size: 0.78rem; white-space: nowrap; }
+  .btn-sync:disabled { opacity: 0.6; cursor: wait; }
   .conv-item {
     display: block; width: 100%; text-align: left; padding: 14px 18px; border: none; border-bottom: 1px solid var(--border);
     background: transparent; color: inherit; cursor: pointer; transition: background 0.12s; font-family: inherit;
@@ -383,7 +386,10 @@ export function renderThreadPanel(opts: {
           <div id="conv-list">${convHtml}</div>
         </div>
         <div id="thread-pane">
-          <div class="panel-head">${escapeHtml(opts.participantLabel)}</div>
+          <div class="panel-head panel-head-row">
+            <span>${escapeHtml(opts.participantLabel)}</span>
+            <button type="button" class="btn-outline btn-sync" data-sync-conversation="${escapeHtml(opts.conversationId)}">Sync from Instagram</button>
+          </div>
           <div class="thread-messages" id="thread-messages">${bubbles || '<div class="empty">No messages yet.</div>'}</div>
           <form class="send-bar" data-send-form data-conversation-id="${escapeHtml(opts.conversationId)}">
             <input type="text" name="message" placeholder="Write a reply..." required autocomplete="off" />
@@ -462,6 +468,26 @@ function appScript(storeId: string, initialTab: AppTab, initialConversation?: st
     root.querySelectorAll('[data-conversation]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         openConversation(btn.getAttribute('data-conversation'));
+      });
+    });
+
+    root.querySelectorAll('[data-sync-conversation]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var convId = btn.getAttribute('data-sync-conversation');
+        if (!convId || btn.disabled) return;
+        btn.disabled = true;
+        fetch('/api/inbox/conversations/' + encodeURIComponent(convId) + '/sync' + storeQs(), {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
+        })
+          .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.data.error || 'Sync failed');
+            delete cache[cacheKey('messages', convId)];
+            return openConversation(convId, { flash: { type: 'ok', message: result.data.message || 'Synced from Instagram.' } });
+          })
+          .catch(function (err) { alert(err.message || 'Sync failed'); })
+          .finally(function () { btn.disabled = false; });
       });
     });
 

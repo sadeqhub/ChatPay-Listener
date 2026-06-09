@@ -7,6 +7,7 @@ import {
   listDbConversations,
   saveOutboundMessage,
 } from '../services/inboxStore';
+import { syncConversationAndLoadThread } from '../services/inboxSync';
 import {
   AppTab,
   renderAppError,
@@ -351,6 +352,37 @@ router.get('/api/panels/messages/:conversationId', async (req: Request, res: Res
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load conversation';
     res.status(err instanceof Error && err.message === 'Conversation not found' ? 404 : 500).json({ error: message });
+  }
+});
+
+router.post('/api/inbox/conversations/:conversationId/sync', async (req: Request, res: Response): Promise<void> => {
+  const storeId = resolveStoreId(req);
+  const conversationId = String(req.params.conversationId);
+
+  try {
+    const { sync, thread } = await syncConversationAndLoadThread(storeId, conversationId);
+    res.json({
+      ok: true,
+      sync,
+      thread: {
+        conversationId,
+        participantLabel: thread.conversation.participantLabel,
+        messages: thread.messages,
+      },
+      message:
+        sync.imported > 0
+          ? `Synced ${sync.imported} new message${sync.imported === 1 ? '' : 's'} from Instagram.`
+          : 'Already up to date with Instagram.',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Sync failed';
+    const status =
+      message === 'Conversation not found' || message === 'No matching Instagram thread for this customer'
+        ? 404
+        : message === 'Instagram not connected'
+          ? 401
+          : 500;
+    res.status(status).json({ error: message });
   }
 });
 
