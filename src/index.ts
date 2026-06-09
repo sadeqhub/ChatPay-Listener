@@ -12,6 +12,14 @@ if (process.env.DATABASE_URL && !process.env.DB_URL) {
 
 const app = express();
 
+app.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+// Webhooks must be registered before express.json/urlencoded — those parsers consume
+// the request stream and leave captureRawBody with an empty body (signature → 401).
+app.use('/webhooks/instagram', instagramWebhooks);
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
@@ -19,11 +27,6 @@ app.get('/', (_req, res) => {
   res.redirect(302, '/inbox');
 });
 
-app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true });
-});
-
-app.use('/webhooks/instagram', instagramWebhooks);
 app.use(oauthRoutes);
 app.use(appRoutes);
 

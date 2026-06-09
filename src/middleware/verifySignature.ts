@@ -24,8 +24,15 @@ export function verifyMetaSignature(
   }
 
   const signature = req.get('x-hub-signature-256');
-  if (!signature?.startsWith('sha256=') || !req.rawBody) {
+  if (!signature?.startsWith('sha256=')) {
+    console.warn('[instagram:webhook] missing or invalid x-hub-signature-256 header');
     res.sendStatus(401);
+    return;
+  }
+
+  if (!req.rawBody || req.rawBody.length === 0) {
+    console.warn('[instagram:webhook] empty raw body — check middleware order (webhooks before express.json)');
+    res.sendStatus(400);
     return;
   }
 
@@ -34,6 +41,7 @@ export function verifyMetaSignature(
     crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
 
   if (!safeEqual(signature, expected)) {
+    console.warn('[instagram:webhook] signature mismatch');
     res.sendStatus(401);
     return;
   }
