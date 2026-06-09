@@ -327,15 +327,15 @@ export function renderConnectPage(opts: {
     'Connect ChatPay Bot',
     `<section class="card hero-card">
       <div class="hero-icon" aria-hidden="true">◎</div>
-      <h2>Connect ChatPay Bot</h2>
-      <p>Link your Instagram professional account so ChatPay can receive DMs, reply automatically, and take orders from Instagram.</p>
+      <h2>Connect Instagram</h2>
+      <p>Link your Instagram Professional account so ChatPay can read and send Direct Messages on behalf of your business.</p>
       ${storeLine}
       <a class="btn-primary" href="${escapeHtml(opts.loginUrl)}">
         <span aria-hidden="true">↗</span>
-        Connect ChatPay Bot
+        Connect Instagram
       </a>
       <br />
-      <a class="btn-secondary" href="/oauth.php">Restart setup</a>
+      <a class="btn-secondary" href="/demo">App Review demo</a>
     </section>`,
   );
 }
@@ -390,12 +390,12 @@ export function renderSelectPage(opts: {
     .join('');
 
   return layout(
-    'Select account',
+    'Select Instagram account',
     `<section class="card">
-      <h2 style="margin:0 0 8px;font-size:1.35rem;">Choose Instagram account</h2>
-      <p style="margin:0;color:var(--muted);">Multiple Facebook Pages are linked. Select which one ChatPay should use.</p>
+      <h2 style="margin:0 0 8px;font-size:1.35rem;">Select Instagram Business account</h2>
+      <p style="margin:0;color:var(--muted);">Choose the Facebook Page linked to the Instagram account ChatPay should manage.</p>
       <div class="page-grid">${tiles}</div>
-      <p style="margin-top:24px;"><a class="btn-secondary" href="/oauth.php">← Back</a></p>
+      <p style="margin-top:24px;"><a class="btn-secondary" href="/demo">← Back to demo</a></p>
     </section>`,
   );
 }

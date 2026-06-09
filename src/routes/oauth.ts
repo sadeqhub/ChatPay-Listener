@@ -110,6 +110,10 @@ function decodeState(value: string): string | null {
   }
 }
 
+function demoInboxRedirect(storeId: string): string {
+  return `/demo/inbox?storeId=${encodeURIComponent(storeId)}&connected=1`;
+}
+
 function buildStatePayload(
   req: Request,
   fallbackState: string,
@@ -685,6 +689,12 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
       selected.pageAccessToken,
     );
 
+    const { storeId } = resolvePersistContext(session.persistContext);
+    if (persisted.channelAccountId && storeId) {
+      res.redirect(302, demoInboxRedirect(storeId));
+      return;
+    }
+
     const tokenPreview = `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`;
 
     res.status(200).type('html').send(
@@ -699,7 +709,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           persistedWarning: persisted.warning,
           webhookStatus,
         }),
-        primaryAction: { label: 'Connect another account', href: '/oauth.php' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
       }),
     );
     return;
@@ -787,6 +797,12 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
         ? `${selected.pageAccessToken.slice(0, 12)}…${selected.pageAccessToken.slice(-6)}`
         : '';
 
+      const { storeId } = resolvePersistContext(persistContext);
+      if (channelAccountId && storeId && selected) {
+        res.redirect(302, demoInboxRedirect(storeId));
+        return;
+      }
+
       res.status(200).type('html').send(
         renderResultPage({
           title: selected ? 'ChatPay Bot connected' : 'No Instagram account found',
@@ -806,10 +822,10 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
                 {
                   label: 'Tip',
                   value: 'Connect IG to a Facebook Page in Meta Business settings first.',
-                  status: 'warn',
+                  status: 'warn' as const,
                 },
               ],
-          primaryAction: { label: 'Try again', href: '/oauth.php' },
+          primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
         }),
       );
       return;
@@ -825,6 +841,12 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
     );
     const channelAccountId = persisted.channelAccountId;
 
+    const { storeId } = resolvePersistContext(persistContext);
+    if (channelAccountId && storeId) {
+      res.redirect(302, demoInboxRedirect(storeId));
+      return;
+    }
+
     res.status(200).type('html').send(
       renderResultPage({
         title: 'ChatPay Bot connected',
@@ -834,7 +856,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           channelAccountId,
           persistedWarning: persisted.warning,
         }),
-        primaryAction: { label: 'Connect another account', href: '/oauth.php' },
+        primaryAction: { label: 'Open Inbox', href: storeId ? demoInboxRedirect(storeId) : '/demo' },
       }),
     );
   } catch (err) {
