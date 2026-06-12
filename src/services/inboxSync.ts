@@ -1,8 +1,8 @@
 import prisma from './db';
 import {
   fetchConnectedProfile,
-  fetchConversations,
   fetchThreadMessages,
+  findConversationForCustomer,
   ThreadMessage,
 } from './instagramGraph';
 import { getDbThread } from './inboxStore';
@@ -14,6 +14,7 @@ export type SyncResult = {
   skipped: number;
   graphMessageCount: number;
   graphConversationId: string;
+  customerIgsid: string;
 };
 
 async function loadAccount(storeId: string) {
@@ -54,7 +55,7 @@ async function upsertGraphMessage(opts: {
       conversationId: opts.conversationId,
       storeId: opts.storeId,
       userId: opts.userId,
-      senderId: opts.graphMessage.fromId,
+      senderId: opts.graphMessage.fromId || opts.customerSenderId,
       recipientId: isFromBusiness ? opts.customerSenderId : opts.merchantIgId,
       messageId: opts.graphMessage.id,
       text: opts.graphMessage.text,
@@ -88,31 +89,53 @@ export async function syncConversationFromInstagram(
     account.externalAccountId ?? undefined,
   );
 
-  const graphConversations = await fetchConversations(
+  console.log(
+    '[inboxSync] start',
+    JSON.stringify({
+      storeId,
+      conversationId,
+      customerIgsid: conversation.senderId,
+      pageId: profile.pageId,
+      igId: profile.igId,
+    }),
+  );
+
+  const graphConv = await findConversationForCustomer(
     profile.pageId,
     account.accessToken,
     profile.igId,
-  );
-
-  const graphConv = graphConversations.find(
-    (c) => c.participantId === conversation.senderId,
+    conversation.senderId,
   );
 
   if (!graphConv) {
-    throw new Error('No matching Instagram thread for this customer');
+    throw new Error(
+      `No Instagram thread found for customer ${conversation.senderId}. They may need to message you first.`,
+    );
   }
 
-  const businessIds = new Set([
-    profile.pageId,
-    profile.igId,
-    account.externalAccountId || '',
-  ]);
+  const businessIds = new Set(
+    [profile.pageId, profile.igId, account.externalAccountId || ''].filter(Boolean),
+  );
 
   const graphMessages = await fetchThreadMessages(
     graphConv.id,
     account.accessToken,
     businessIds,
   );
+
+  console.log(
+    '[inboxSync] fetched',
+    JSON.stringify({
+      graphConversationId: graphConv.id,
+      graphMessageCount: graphMessages.length,
+    }),
+  );
+
+  if (graphMessages.length === 0) {
+    throw new Error(
+      'Instagram returned no readable messages for this thread. Meta only exposes the 20 most recent messages via API.',
+    );
+  }
 
   let imported = 0;
   let skipped = 0;
@@ -142,6 +165,7 @@ export async function syncConversationFromInstagram(
     skipped,
     graphMessageCount: graphMessages.length,
     graphConversationId: graphConv.id,
+    customerIgsid: conversation.senderId,
   };
 }
 

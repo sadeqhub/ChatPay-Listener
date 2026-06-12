@@ -371,8 +371,8 @@ router.post('/api/inbox/conversations/:conversationId/sync', async (req: Request
       },
       message:
         sync.imported > 0
-          ? `Synced ${sync.imported} new message${sync.imported === 1 ? '' : 's'} from Instagram.`
-          : 'Already up to date with Instagram.',
+          ? `Synced ${sync.imported} new message${sync.imported === 1 ? '' : 's'} from Instagram (${sync.graphMessageCount} read from API).`
+          : `Already up to date. Instagram returned ${sync.graphMessageCount} message${sync.graphMessageCount === 1 ? '' : 's'}.`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Sync failed';
