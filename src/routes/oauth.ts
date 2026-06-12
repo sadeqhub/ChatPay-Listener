@@ -14,9 +14,9 @@ const router = Router();
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || 'v21.0';
 const INSTAGRAM = 'Instagram' as const;
 
-/** hurdelivery — default target when no store/user is passed in OAuth */
-const DEFAULT_OAUTH_STORE_ID = 'cmhee2hx3004w915bxudirfv1';
-const DEFAULT_OAUTH_USER_ID = 'cmhedz7o2008qm4i2h1nvfq6d';
+/** hurdelivery / Wayl — default target when no store/user is passed in OAuth */
+const DEFAULT_OAUTH_STORE_ID = 'cmh0sk1c4002nokyu506e8nvr';
+const DEFAULT_OAUTH_USER_ID = 'cmh0siw57002ewm2g3nd94tkb';
 
 /** Facebook Login — use when your app has no "Instagram" product (most webhook/messaging apps) */
 const FACEBOOK_LOGIN_SCOPES = [
@@ -123,8 +123,14 @@ function buildStatePayload(
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
   const payload = {
     state: fallbackState,
-    storeId: storeId || undefined,
-    userId: userId || undefined,
+    storeId:
+      storeId ||
+      process.env.OAUTH_STORE_ID?.trim() ||
+      DEFAULT_OAUTH_STORE_ID,
+    userId:
+      userId ||
+      process.env.OAUTH_USER_ID?.trim() ||
+      DEFAULT_OAUTH_USER_ID,
   };
   return encodeState(JSON.stringify(payload));
 }
@@ -247,37 +253,65 @@ type PageAccount = {
   instagram_business_account?: { id: string };
 };
 
-/** Exchange a Page token for a long-lived Page token (same endpoint as user token exchange). */
-async function exchangeLongLivedPageToken(
-  pageAccessToken: string,
-): Promise<TokenResponse> {
-  return exchangeFacebookLongLived(pageAccessToken);
-}
-
 async function findInstagramBusinessAccounts(
   userAccessToken: string,
 ): Promise<LinkedInstagramPage[]> {
-  const pages = await graphGet<{ data: PageAccount[] }>('me/accounts', {
+  const pages = await graphGet<{ data?: PageAccount[] }>('me/accounts', {
     access_token: userAccessToken,
-    fields: 'id,name,access_token,instagram_business_account',
+    fields: 'id,name,access_token,instagram_business_account{id}',
   });
 
   const linked: LinkedInstagramPage[] = [];
-  for (const page of pages.data) {
+  for (const page of pages.data ?? []) {
     const igId = page.instagram_business_account?.id;
-    const shortPageToken = page.access_token;
-    if (!igId || !shortPageToken) {
+    const pageAccessToken = page.access_token;
+    if (!igId || !pageAccessToken) {
       continue;
     }
-    const longLivedPage = await exchangeLongLivedPageToken(shortPageToken);
+
+    // Page tokens returned from me/accounts with a long-lived user token are
+    // already long-lived. Re-exchanging them often fails with Meta OAuth errors.
     linked.push({
       pageId: page.id,
       pageName: page.name,
       igId,
-      pageAccessToken: longLivedPage.access_token,
+      pageAccessToken,
     });
   }
   return linked;
+}
+
+function oauthRetryUrl(persistContext: PersistContext): string {
+  const params = new URLSearchParams();
+  const { storeId, userId } = resolvePersistContext(persistContext);
+  params.set('storeId', storeId);
+  params.set('userId', userId);
+  return `/oauth.php?${params.toString()}`;
+}
+
+function oauthSelectionUrl(
+  persistContext: PersistContext,
+  selection: string,
+  pageId: string,
+): string {
+  const base = oauthRetryUrl(persistContext);
+  return `${base}&selection=${encodeURIComponent(selection)}&pageId=${encodeURIComponent(pageId)}`;
+}
+
+function formatOAuthError(err: unknown, step: string): string {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`[oauth] ${step} failed:`, message);
+
+  if (/authorization code has been used|code has expired/i.test(message)) {
+    return 'This login link has already been used or expired. Open Connect Instagram from the dashboard and try again.';
+  }
+  if (/redirect_uri/i.test(message)) {
+    return `OAuth redirect URI mismatch. Set OAUTH_REDIRECT_URI to ${process.env.OAUTH_REDIRECT_URI?.trim() || 'https://chatpay-listener-production.up.railway.app/oauth.php'} in Railway.`;
+  }
+  if (/unexpected error has occurred/i.test(message)) {
+    return `Meta returned a temporary error during ${step}. Wait a minute and use Connect Instagram from the dashboard to start a fresh login.`;
+  }
+  return message;
 }
 
 type SubscribedAppEntry = {
@@ -755,12 +789,26 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
   }
 
   try {
+    const authCode = normalizeAuthCode(code);
+
     if (flow === 'facebook') {
-      const shortLivedUser = await exchangeFacebookCode(code, redirectUri);
+      const shortLivedUser = await exchangeFacebookCode(authCode, redirectUri);
       const longLivedUser = await exchangeFacebookLongLived(shortLivedUser.access_token);
       const linkedPages = await findInstagramBusinessAccounts(longLivedUser.access_token);
 
       const expiresIn = longLivedUser.expires_in ?? shortLivedUser.expires_in;
+
+      if (linkedPages.length === 0) {
+        res.status(400).type('html').send(
+          renderErrorPage({
+            title: 'No Instagram account found',
+            message:
+              'No Facebook Page with a linked Instagram professional account was found. Link Instagram to your Page in Meta Business settings, then try again.',
+            retryHref: oauthRetryUrl(persistContext),
+          }),
+        );
+        return;
+      }
 
       if (linkedPages.length > 1 && !pageIdParam) {
         const selection = encodeSelectionSession({
@@ -771,7 +819,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
         res.status(200).type('html').send(
           renderSelectPage({
             pages: linkedPages.map((page) => ({
-              href: `/oauth.php?selection=${encodeURIComponent(selection)}&pageId=${encodeURIComponent(page.pageId)}`,
+              href: oauthSelectionUrl(persistContext, selection, page.pageId),
               pageName: page.pageName || page.pageId,
               igId: page.igId,
             })),
@@ -861,12 +909,12 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
       }),
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'OAuth failed';
-    console.error('oauth.php error:', message);
+    const message = formatOAuthError(err, 'Instagram connection');
     res.status(500).type('html').send(
       renderErrorPage({
         title: 'Connection failed',
         message,
+        retryHref: oauthRetryUrl(persistContext),
       }),
     );
   }

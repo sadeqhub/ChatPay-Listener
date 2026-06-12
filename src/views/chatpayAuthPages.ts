@@ -403,7 +403,9 @@ export function renderErrorPage(opts: {
   title: string;
   message: string;
   hintHtml?: string;
+  retryHref?: string;
 }): string {
+  const retryHref = opts.retryHref || '/oauth.php';
   return layout(
     opts.title,
     `<section class="card hero-card">
@@ -411,7 +413,7 @@ export function renderErrorPage(opts: {
       <h2>${escapeHtml(opts.title)}</h2>
       <p>${escapeHtml(opts.message)}</p>
       ${opts.hintHtml ?? ''}
-      <a class="btn-primary" href="/oauth.php">Try again</a>
+      <a class="btn-primary" href="${escapeHtml(retryHref)}">Try again</a>
     </section>`,
   );
 }
