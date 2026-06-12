@@ -370,8 +370,8 @@ router.post('/api/inbox/conversations/:conversationId/sync', async (req: Request
         messages: thread.messages,
       },
       message:
-        sync.imported > 0
-          ? `Synced ${sync.imported} new message${sync.imported === 1 ? '' : 's'} from Instagram (${sync.graphMessageCount} read from API).`
+        sync.imported > 0 || sync.updated > 0 || sync.removed > 0
+          ? `Synced from Instagram: ${sync.imported} new, ${sync.updated} updated${sync.removed > 0 ? `, ${sync.removed} removed` : ''} (${sync.graphMessageCount} from API).`
           : `Already up to date. Instagram returned ${sync.graphMessageCount} message${sync.graphMessageCount === 1 ? '' : 's'}.`,
     });
   } catch (err) {

@@ -1,4 +1,5 @@
 import prisma from './db';
+import { Prisma } from '@prisma/client';
 import {
   fetchConnectedProfile,
   fetchThreadMessages,
@@ -11,7 +12,9 @@ const INSTAGRAM = 'Instagram' as const;
 
 export type SyncResult = {
   imported: number;
+  updated: number;
   skipped: number;
+  removed: number;
   graphMessageCount: number;
   graphConversationId: string;
   customerIgsid: string;
@@ -29,42 +32,68 @@ function parseGraphTime(createdTime?: string): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-async function upsertGraphMessage(opts: {
-  conversationId: string;
-  storeId: string;
-  userId: string;
-  customerSenderId: string;
-  merchantIgId: string;
-  graphMessage: ThreadMessage;
-}): Promise<boolean> {
-  const existing = await prisma.message.findFirst({
+async function upsertGraphMessage(
+  tx: Prisma.TransactionClient,
+  opts: {
+    conversationId: string;
+    storeId: string;
+    userId: string;
+    customerSenderId: string;
+    merchantIgId: string;
+    graphMessage: ThreadMessage;
+  },
+): Promise<'created' | 'updated' | 'skipped'> {
+  const existing = await tx.message.findFirst({
     where: {
       conversationId: opts.conversationId,
       messageId: opts.graphMessage.id,
     },
-    select: { id: true },
   });
-
-  if (existing) return false;
 
   const isFromBusiness = opts.graphMessage.isFromBusiness;
   const createdAt = parseGraphTime(opts.graphMessage.createdTime);
+  const senderId = opts.graphMessage.fromId || opts.customerSenderId;
+  const recipientId = isFromBusiness ? opts.customerSenderId : opts.merchantIgId;
+  const timestamp = opts.graphMessage.createdTime ?? String(Date.now());
 
-  await prisma.message.create({
+  if (existing) {
+    const needsUpdate =
+      existing.text !== opts.graphMessage.text ||
+      existing.timestamp !== timestamp ||
+      existing.senderId !== senderId ||
+      existing.recipientId !== recipientId ||
+      (createdAt && existing.createdAt.getTime() !== createdAt.getTime());
+
+    if (!needsUpdate) return 'skipped';
+
+    await tx.message.update({
+      where: { id: existing.id },
+      data: {
+        text: opts.graphMessage.text,
+        timestamp,
+        senderId,
+        recipientId,
+        ...(createdAt ? { createdAt } : {}),
+      },
+    });
+    return 'updated';
+  }
+
+  await tx.message.create({
     data: {
       conversationId: opts.conversationId,
       storeId: opts.storeId,
       userId: opts.userId,
-      senderId: opts.graphMessage.fromId || opts.customerSenderId,
-      recipientId: isFromBusiness ? opts.customerSenderId : opts.merchantIgId,
+      senderId,
+      recipientId,
       messageId: opts.graphMessage.id,
       text: opts.graphMessage.text,
-      timestamp: opts.graphMessage.createdTime ?? String(Date.now()),
+      timestamp,
       ...(createdAt ? { createdAt } : {}),
     },
   });
 
-  return true;
+  return 'created';
 }
 
 export async function syncConversationFromInstagram(
@@ -141,31 +170,47 @@ export async function syncConversationFromInstagram(
   }
 
   let imported = 0;
+  let updated = 0;
   let skipped = 0;
+  let removed = 0;
 
-  for (const graphMessage of graphMessages) {
-    const created = await upsertGraphMessage({
-      conversationId: conversation.id,
-      storeId: conversation.storeId,
-      userId: conversation.userId,
-      customerSenderId: conversation.senderId,
-      merchantIgId: profile.igId || account.externalAccountId || profile.pageId,
-      graphMessage,
+  const graphMessageIds = graphMessages.map((m) => m.id);
+  const merchantIgId = profile.igId || account.externalAccountId || profile.pageId;
+
+  await prisma.$transaction(async (tx) => {
+    for (const graphMessage of graphMessages) {
+      const result = await upsertGraphMessage(tx, {
+        conversationId: conversation.id,
+        storeId: conversation.storeId,
+        userId: conversation.userId,
+        customerSenderId: conversation.senderId,
+        merchantIgId,
+        graphMessage,
+      });
+      if (result === 'created') imported += 1;
+      else if (result === 'updated') updated += 1;
+      else skipped += 1;
+    }
+
+    const stale = await tx.message.deleteMany({
+      where: {
+        conversationId: conversation.id,
+        messageId: { notIn: graphMessageIds },
+      },
     });
-    if (created) imported += 1;
-    else skipped += 1;
-  }
+    removed = stale.count;
 
-  if (imported > 0) {
-    await prisma.conversation.update({
+    await tx.conversation.update({
       where: { id: conversation.id },
       data: { updatedAt: new Date() },
     });
-  }
+  });
 
   return {
     imported,
+    updated,
     skipped,
+    removed,
     graphMessageCount: graphMessages.length,
     graphConversationId: graphConv.id,
     customerIgsid: conversation.senderId,

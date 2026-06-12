@@ -229,10 +229,10 @@
           .then(function (result) {
             if (!result.ok) throw new Error(result.data.error || 'Sync failed');
             delete cache[cacheKey('messages', convId)];
-            if (result.data.thread && result.data.thread.messages) {
-              renderThreadMessages(result.data.thread.messages);
-            }
-            showThreadFlash(result.data.message || 'Synced from Instagram.');
+            lastLiveAt = new Date(0).toISOString();
+            return openConversation(convId, {
+              flash: { type: 'ok', message: result.data.message || 'Synced from Instagram.' },
+            });
           })
           .catch(function (err) {
             alert(err.message || 'Sync failed');
