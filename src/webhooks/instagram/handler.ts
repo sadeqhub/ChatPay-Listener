@@ -1,4 +1,5 @@
 import prisma from '../../services/db';
+import { fetchInstagramUsername } from '../../services/instagramGraph';
 import { messageQueue } from '../../queue';
 import { ParsedInboundMessage } from './parse';
 
@@ -77,6 +78,19 @@ async function processOneInbound(inbound: ParsedInboundMessage): Promise<void> {
       timestamp: inbound.timestamp,
     },
   });
+
+  if (channelAccount.accessToken && !conversation.senderUsername) {
+    const username = await fetchInstagramUsername(
+      inbound.customerIgsid,
+      channelAccount.accessToken,
+    );
+    if (username) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { senderUsername: username },
+      });
+    }
+  }
 
   await messageQueue.add('process-message', {
     conversationId: conversation.id,

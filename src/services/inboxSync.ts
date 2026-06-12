@@ -209,9 +209,22 @@ export async function syncConversationFromInstagram(
   });
   removed = stale.count;
 
+  let senderUsername = graphConv.participantUsername;
+  if (!senderUsername) {
+    const customerMsg = graphMessages.find(
+      (m) => !m.isFromBusiness && m.fromLabel.startsWith('@'),
+    );
+    if (customerMsg) {
+      senderUsername = customerMsg.fromLabel.slice(1);
+    }
+  }
+
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { updatedAt: new Date() },
+    data: {
+      updatedAt: new Date(),
+      ...(senderUsername ? { senderUsername } : {}),
+    },
   });
 
   return {

@@ -1,4 +1,5 @@
 import prisma from './db';
+import { fetchInstagramUsername } from './instagramGraph';
 
 const INSTAGRAM = 'Instagram' as const;
 
@@ -26,9 +27,37 @@ export type StoreMeta = {
   connectUrl?: string;
 };
 
-function labelForSender(senderId: string, igId?: string | null): string {
-  if (igId && senderId === igId) return 'You';
+function labelForSender(
+  senderId: string,
+  opts?: { merchantIgId?: string | null; senderUsername?: string | null },
+): string {
+  if (opts?.merchantIgId && senderId === opts.merchantIgId) return 'You';
+  const handle = opts?.senderUsername?.replace(/^@/, '').trim();
+  if (handle) return `@${handle}`;
   return `Customer ${senderId.slice(-6)}`;
+}
+
+export async function enrichMissingUsernames(storeId: string): Promise<void> {
+  const account = await prisma.channelAccount.findFirst({
+    where: { storeId, platform: INSTAGRAM },
+    select: { accessToken: true },
+  });
+  if (!account?.accessToken) return;
+
+  const missing = await prisma.conversation.findMany({
+    where: { storeId, platform: INSTAGRAM, senderUsername: null },
+    select: { id: true, senderId: true },
+    take: 25,
+  });
+
+  for (const conv of missing) {
+    const username = await fetchInstagramUsername(conv.senderId, account.accessToken);
+    if (!username) continue;
+    await prisma.conversation.update({
+      where: { id: conv.id },
+      data: { senderUsername: username },
+    });
+  }
 }
 
 export async function getStoreMeta(storeId: string, connectUrl: string): Promise<StoreMeta> {
@@ -47,6 +76,8 @@ export async function getStoreMeta(storeId: string, connectUrl: string): Promise
 }
 
 export async function listDbConversations(storeId: string): Promise<InboxConversation[]> {
+  await enrichMissingUsernames(storeId);
+
   const rows = await prisma.conversation.findMany({
     where: { storeId, platform: INSTAGRAM },
     include: {
@@ -64,7 +95,10 @@ export async function listDbConversations(storeId: string): Promise<InboxConvers
     return {
       id: row.id,
       participantId: row.senderId,
-      participantLabel: labelForSender(row.senderId, row.recipientId),
+      participantLabel: labelForSender(row.senderId, {
+        merchantIgId: row.recipientId,
+        senderUsername: row.senderUsername,
+      }),
       snippet: last?.text,
       updatedTime: (last?.createdAt ?? row.updatedAt).toISOString(),
     };
@@ -85,12 +119,28 @@ export async function getDbThread(
 
   if (!row) return null;
 
+  if (!row.senderUsername) {
+    await enrichMissingUsernames(storeId);
+    const refreshed = await prisma.conversation.findFirst({
+      where: { id: conversationId, storeId, platform: INSTAGRAM },
+      select: { senderUsername: true },
+    });
+    if (refreshed?.senderUsername) {
+      row.senderUsername = refreshed.senderUsername;
+    }
+  }
+
+  const labelOpts = {
+    merchantIgId: row.recipientId,
+    senderUsername: row.senderUsername,
+  };
+
   const messages: InboxMessage[] = row.messages.map((m) => {
     const isFromBusiness = m.senderId !== row.senderId;
     return {
       id: m.id,
       text: m.text,
-      fromLabel: isFromBusiness ? 'You' : labelForSender(m.senderId, row.recipientId),
+      fromLabel: isFromBusiness ? 'You' : labelForSender(m.senderId, labelOpts),
       isFromBusiness,
       createdTime: m.createdAt.toISOString(),
     };
@@ -101,7 +151,7 @@ export async function getDbThread(
     conversation: {
       id: row.id,
       participantId: row.senderId,
-      participantLabel: labelForSender(row.senderId, row.recipientId),
+      participantLabel: labelForSender(row.senderId, labelOpts),
       snippet: last?.text,
       updatedTime: (last?.createdAt ?? row.updatedAt).toISOString(),
     },

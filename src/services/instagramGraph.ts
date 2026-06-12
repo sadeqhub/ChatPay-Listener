@@ -77,6 +77,7 @@ export type ConversationSummary = {
   updatedTime?: string;
   participantId: string;
   participantLabel: string;
+  participantUsername?: string;
   snippet?: string;
   messages?: ThreadMessage[];
 };
@@ -144,8 +145,29 @@ function mapConversation(
     updatedTime: conv.updated_time,
     participantId: customer?.id || '',
     participantLabel: label,
+    participantUsername: customer?.username,
     snippet: conv.snippet,
   };
+}
+
+export async function fetchInstagramUsername(
+  igsid: string,
+  accessToken: string,
+): Promise<string | undefined> {
+  try {
+    const user = await graphGet<{ username?: string; name?: string }>(
+      `${encodeNodeId(igsid)}?fields=username,name`,
+      accessToken,
+    );
+    return user.username?.trim() || undefined;
+  } catch (err) {
+    console.warn(
+      '[instagramGraph] username lookup failed',
+      igsid,
+      err instanceof Error ? err.message : err,
+    );
+    return undefined;
+  }
 }
 
 export async function fetchConnectedProfile(
