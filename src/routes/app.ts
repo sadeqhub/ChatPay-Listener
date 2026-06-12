@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../services/db';
-import { fetchConnectedProfile, sendInstagramMessage } from '../services/instagramGraph';
+import { resolvePageAccessToken } from '../services/instagramToken';
+import { sendInstagramMessage } from '../services/instagramGraph';
 import {
   getDbThread,
   getStoreMeta,
@@ -190,14 +191,11 @@ async function sendStoreMessage(
     throw new Error('Instagram not connected');
   }
 
-  const profile = await fetchConnectedProfile(
-    account.accessToken,
-    account.externalAccountId ?? undefined,
-  );
+  const profile = await resolvePageAccessToken(account);
 
   const result = await sendInstagramMessage(
     profile.pageId,
-    account.accessToken,
+    profile.accessToken,
     conversation.senderId,
     text,
   );
@@ -379,7 +377,8 @@ router.post('/api/inbox/conversations/:conversationId/sync', async (req: Request
     const status =
       message === 'Conversation not found' || message === 'No matching Instagram thread for this customer'
         ? 404
-        : message === 'Instagram not connected'
+        : message === 'Instagram not connected' ||
+            message.includes('Instagram connection needs to be refreshed')
           ? 401
           : 500;
     res.status(status).json({ error: message });

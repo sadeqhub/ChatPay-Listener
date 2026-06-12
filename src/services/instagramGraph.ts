@@ -20,7 +20,16 @@ async function graphFetch<T>(urlOrPath: string, accessToken: string): Promise<T>
   const response = await fetch(url);
   const body = (await response.json()) as T & { error?: GraphError };
   if (!response.ok || body.error) {
-    throw new Error(body.error?.message || `Graph request failed (${response.status})`);
+    const message = body.error?.message || `Graph request failed (${response.status})`;
+    if (
+      message.includes('Cannot call API for app') &&
+      message.includes('on behalf of user')
+    ) {
+      throw new Error(
+        'Instagram connection needs to be refreshed. Use Connect Instagram, sign in with Facebook, and select your Page.',
+      );
+    }
+    throw new Error(message);
   }
   return body;
 }
@@ -60,7 +69,16 @@ async function graphPost<T>(
   });
   const body = (await response.json()) as T & { error?: GraphError };
   if (!response.ok || body.error) {
-    throw new Error(body.error?.message || `Graph POST failed (${response.status})`);
+    const message = body.error?.message || `Graph POST failed (${response.status})`;
+    if (
+      message.includes('Cannot call API for app') &&
+      message.includes('on behalf of user')
+    ) {
+      throw new Error(
+        'Instagram connection needs to be refreshed. Use Connect Instagram, sign in with Facebook, and select your Page.',
+      );
+    }
+    throw new Error(message);
   }
   return body;
 }

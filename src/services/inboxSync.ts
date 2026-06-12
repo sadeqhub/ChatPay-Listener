@@ -1,10 +1,10 @@
 import prisma from './db';
 import {
-  fetchConnectedProfile,
   fetchThreadMessages,
   findConversationForCustomer,
   ThreadMessage,
 } from './instagramGraph';
+import { resolvePageAccessToken } from './instagramToken';
 import { getDbThread } from './inboxStore';
 
 const INSTAGRAM = 'Instagram' as const;
@@ -112,10 +112,8 @@ export async function syncConversationFromInstagram(
     throw new Error('Instagram not connected');
   }
 
-  const profile = await fetchConnectedProfile(
-    account.accessToken,
-    account.externalAccountId ?? undefined,
-  );
+  const profile = await resolvePageAccessToken(account);
+  const accessToken = profile.accessToken;
 
   console.log(
     '[inboxSync] start',
@@ -130,7 +128,7 @@ export async function syncConversationFromInstagram(
 
   const graphConv = await findConversationForCustomer(
     profile.pageId,
-    account.accessToken,
+    accessToken,
     profile.igId,
     conversation.senderId,
   );
@@ -149,7 +147,7 @@ export async function syncConversationFromInstagram(
   if (graphMessages.length === 0) {
     graphMessages = await fetchThreadMessages(
       graphConv.id,
-      account.accessToken,
+      accessToken,
       businessIds,
     );
   }
