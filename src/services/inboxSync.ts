@@ -117,11 +117,14 @@ export async function syncConversationFromInstagram(
     [profile.pageId, profile.igId, account.externalAccountId || ''].filter(Boolean),
   );
 
-  const graphMessages = await fetchThreadMessages(
-    graphConv.id,
-    account.accessToken,
-    businessIds,
-  );
+  let graphMessages = graphConv.messages ?? [];
+  if (graphMessages.length === 0) {
+    graphMessages = await fetchThreadMessages(
+      graphConv.id,
+      account.accessToken,
+      businessIds,
+    );
+  }
 
   console.log(
     '[inboxSync] fetched',

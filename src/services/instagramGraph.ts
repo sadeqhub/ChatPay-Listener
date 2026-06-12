@@ -78,6 +78,7 @@ export type ConversationSummary = {
   participantId: string;
   participantLabel: string;
   snippet?: string;
+  messages?: ThreadMessage[];
 };
 
 export type ThreadMessage = {
@@ -96,7 +97,27 @@ type RawConversation = {
   updated_time?: string;
   snippet?: string;
   participants?: { data: RawParticipant[] };
+  messages?: { data: RawGraphMessage[] };
 };
+
+function encodeNodeId(id: string): string {
+  return encodeURIComponent(id);
+}
+
+function parseMessagesFromConversation(
+  conv: RawConversation,
+  businessIds: Set<string>,
+): ThreadMessage[] {
+  const rows = conv.messages?.data ?? [];
+  return rows
+    .map((m) => mapGraphMessage(m, businessIds))
+    .filter((m): m is ThreadMessage => m !== null)
+    .sort((a, b) => {
+      const ta = a.createdTime ? Date.parse(a.createdTime) : 0;
+      const tb = b.createdTime ? Date.parse(b.createdTime) : 0;
+      return ta - tb;
+    });
+}
 
 function mapConversation(
   conv: RawConversation,
@@ -145,23 +166,43 @@ export async function fetchConnectedProfile(
   };
 }
 
+const MESSAGE_FIELDS =
+  'messages.limit(25){id,message,from{id,username,name},created_time}';
+
+function withMessages(fields: string): string {
+  return `${fields},${MESSAGE_FIELDS}`;
+}
+
+function finalizeConversation(
+  conv: RawConversation,
+  pageId: string,
+  igId: string,
+  customerIgsid: string,
+  businessIds: Set<string>,
+): ConversationSummary {
+  const summary = mapConversation(conv, pageId, igId, customerIgsid);
+  const messages = parseMessagesFromConversation(conv, businessIds);
+  return messages.length ? { ...summary, messages } : summary;
+}
+
 export async function findConversationForCustomer(
   pageId: string,
   accessToken: string,
   igId: string,
   customerIgsid: string,
 ): Promise<ConversationSummary | null> {
-  const fields = 'id,participants,updated_time,snippet';
+  const fields = withMessages('id,participants,updated_time,snippet');
   const owners = [pageId, igId].filter(Boolean);
+  const businessIds = new Set([pageId, igId].filter(Boolean));
 
   for (const ownerId of owners) {
     try {
       const direct = await graphGet<GraphPage<RawConversation>>(
-        `${ownerId}/conversations?platform=instagram&user_id=${encodeURIComponent(customerIgsid)}&fields=${fields}&limit=5`,
+        `${ownerId}/conversations?platform=instagram&user_id=${encodeURIComponent(customerIgsid)}&fields=${encodeURIComponent(fields)}&limit=5`,
         accessToken,
       );
       if (direct.data?.[0]) {
-        return mapConversation(direct.data[0], pageId, igId, customerIgsid);
+        return finalizeConversation(direct.data[0], pageId, igId, customerIgsid, businessIds);
       }
     } catch (err) {
       console.warn(
@@ -175,7 +216,7 @@ export async function findConversationForCustomer(
   for (const ownerId of owners) {
     try {
       const all = await graphGetAllPages<RawConversation>(
-        `${ownerId}/conversations?platform=instagram&fields=${fields}&limit=50`,
+        `${ownerId}/conversations?platform=instagram&fields=${encodeURIComponent(fields)}&limit=50`,
         accessToken,
         5,
       );
@@ -184,7 +225,7 @@ export async function findConversationForCustomer(
         return ids.includes(customerIgsid);
       });
       if (match) {
-        return mapConversation(match, pageId, igId, customerIgsid);
+        return finalizeConversation(match, pageId, igId, customerIgsid, businessIds);
       }
     } catch (err) {
       console.warn(
@@ -242,7 +283,7 @@ async function fetchMessageDetails(
 ): Promise<ThreadMessage | null> {
   try {
     const m = await graphGet<RawGraphMessage>(
-      `${messageId}?fields=id,message,from{id,username,name},created_time`,
+      `${encodeNodeId(messageId)}?fields=id,message,from{id,username,name},created_time`,
       accessToken,
     );
     return mapGraphMessage(m, businessIds);
@@ -256,41 +297,63 @@ async function fetchMessageDetails(
   }
 }
 
+async function fetchMessagesViaFields(
+  conversationId: string,
+  accessToken: string,
+  businessIds: Set<string>,
+): Promise<ThreadMessage[]> {
+  const conv = await graphGet<RawConversation>(
+    `${encodeNodeId(conversationId)}?fields=${encodeURIComponent(MESSAGE_FIELDS)}`,
+    accessToken,
+  );
+  return parseMessagesFromConversation(conv, businessIds);
+}
+
+async function fetchMessagesViaMessageIds(
+  conversationId: string,
+  accessToken: string,
+  businessIds: Set<string>,
+): Promise<ThreadMessage[]> {
+  const conv = await graphGet<{
+    messages?: { data: Array<{ id: string; created_time?: string }> };
+  }>(
+    `${encodeNodeId(conversationId)}?fields=${encodeURIComponent('messages{id,created_time}')}`,
+    accessToken,
+  );
+
+  const refs = conv.messages?.data ?? [];
+  const detailed = await Promise.all(
+    refs.slice(0, 25).map((ref) => fetchMessageDetails(ref.id, accessToken, businessIds)),
+  );
+  return detailed.filter((m): m is ThreadMessage => m !== null);
+}
+
 export async function fetchThreadMessages(
   conversationId: string,
   accessToken: string,
   businessIds: Set<string>,
 ): Promise<ThreadMessage[]> {
-  const messageFields = 'id,message,from{id,username,name},created_time';
-  const fromEdge = await graphGetAllPages<RawGraphMessage>(
-    `${conversationId}/messages?fields=${messageFields}&limit=50`,
-    accessToken,
-    5,
-  );
+  // Instagram thread IDs (aWdfZA...) do NOT support the /messages edge.
+  // Use ?fields=messages{...} on the conversation node instead.
+  const strategies = [
+    () => fetchMessagesViaFields(conversationId, accessToken, businessIds),
+    () => fetchMessagesViaMessageIds(conversationId, accessToken, businessIds),
+  ];
 
-  let mapped = fromEdge
-    .map((m) => mapGraphMessage(m, businessIds))
-    .filter((m): m is ThreadMessage => m !== null);
-
-  if (mapped.length === 0) {
-    const conv = await graphGet<{
-      messages?: { data: Array<{ id: string; created_time?: string }> };
-    }>(`${conversationId}?fields=messages{id,created_time}`, accessToken);
-
-    const refs = conv.messages?.data ?? [];
-    const detailed = await Promise.all(
-      refs.slice(0, 25).map((ref) => fetchMessageDetails(ref.id, accessToken, businessIds)),
-    );
-    mapped = detailed.filter((m): m is ThreadMessage => m !== null);
+  for (const strategy of strategies) {
+    try {
+      const mapped = await strategy();
+      if (mapped.length > 0) return mapped;
+    } catch (err) {
+      console.warn(
+        '[instagramGraph] fetchThreadMessages strategy failed',
+        conversationId.slice(0, 24),
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
-  mapped.sort((a, b) => {
-    const ta = a.createdTime ? Date.parse(a.createdTime) : 0;
-    const tb = b.createdTime ? Date.parse(b.createdTime) : 0;
-    return ta - tb;
-  });
-
-  return mapped;
+  return [];
 }
 
 export async function sendInstagramMessage(
