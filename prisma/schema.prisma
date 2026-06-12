@@ -1114,7 +1114,6 @@ model Conversation {
 
   senderId    String
   recipientId String
-  senderUsername String?
 
   platform PlatformEnum @default(Instagram)
   messages Message[]
