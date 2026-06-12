@@ -668,6 +668,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
   const flow = getOAuthFlow();
   const stateParam = typeof req.query.state === 'string' ? req.query.state : undefined;
   const persistContext = parsePersistContext(stateParam);
+  const { storeId: resolvedStoreId } = resolvePersistContext(persistContext);
   const pageIdParam = typeof req.query.pageId === 'string' ? req.query.pageId : undefined;
   const selectionSessionParam =
     typeof req.query.selection === 'string' ? req.query.selection : undefined;
@@ -681,6 +682,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
       renderErrorPage({
         title: 'Login cancelled',
         message: description,
+        storeId: resolvedStoreId,
       }),
     );
     return;
@@ -698,6 +700,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
         renderErrorPage({
           title: 'Session expired',
           message: 'Please start again and connect ChatPay Bot.',
+          storeId: resolvedStoreId,
         }),
       );
       return;
@@ -709,6 +712,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
         renderErrorPage({
           title: 'Invalid selection',
           message: 'That Page is no longer available. Please connect again.',
+          storeId: resolvePersistContext(session.persistContext).storeId,
         }),
       );
       return;
@@ -745,6 +749,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           webhookStatus,
         }),
         primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
+        storeId,
       }),
     );
     return;
@@ -783,6 +788,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
       renderConnectPage({
         loginUrl,
         storeLabel: storeId,
+        storeId,
       }),
     );
     return;
@@ -805,6 +811,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
             message:
               'No Facebook Page with a linked Instagram professional account was found. Link Instagram to your Page in Meta Business settings, then try again.',
             retryHref: oauthRetryUrl(persistContext),
+            storeId: resolvedStoreId,
           }),
         );
         return;
@@ -823,6 +830,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
               pageName: page.pageName || page.pageId,
               igId: page.igId,
             })),
+            storeId: resolvedStoreId,
           }),
         );
         return;
@@ -875,6 +883,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
                 },
               ],
           primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
+          storeId,
         }),
       );
       return;
@@ -906,6 +915,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
           persistedWarning: persisted.warning,
         }),
         primaryAction: { label: 'Open Inbox', href: storeId ? inboxRedirect(storeId) : `${webAppBase() || ''}/inbox` },
+        storeId,
       }),
     );
   } catch (err) {
@@ -915,6 +925,7 @@ async function handleOAuth(req: Request, res: Response): Promise<void> {
         title: 'Connection failed',
         message,
         retryHref: oauthRetryUrl(persistContext),
+        storeId: resolvedStoreId,
       }),
     );
   }

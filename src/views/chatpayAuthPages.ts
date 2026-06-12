@@ -1,9 +1,38 @@
+import { inboxAppUrl, webAppBase } from '../lib/publicUrl';
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+type LayoutOpts = {
+  storeId?: string;
+  activeDock?: 'home' | 'manage' | 'menu';
+};
+
+function dashboardUrl(storeId: string | undefined, tab: string): string {
+  const web = webAppBase();
+  const params = new URLSearchParams({ tab });
+  if (storeId) params.set('storeId', storeId);
+  const path = `/inbox?${params.toString()}`;
+  return web ? `${web}${path}` : path;
+}
+
+function renderDock(opts: LayoutOpts = {}): string {
+  const homeHref = dashboardUrl(opts.storeId, 'today');
+  const manageHref = dashboardUrl(opts.storeId, 'messages');
+  const menuHref = dashboardUrl(opts.storeId, 'developers');
+  const active = opts.activeDock ?? 'manage';
+
+  return `<nav class="dock" aria-label="Quick navigation">
+    <a href="${escapeHtml(homeHref)}" class="${active === 'home' ? 'active' : ''}">Home</a>
+    <a href="https://wayl.io" target="_blank" rel="noopener">Store</a>
+    <a href="${escapeHtml(manageHref)}" class="${active === 'manage' ? 'active' : ''}">Manage</a>
+    <a href="${escapeHtml(menuHref)}" class="${active === 'menu' ? 'active' : ''}">Menu</a>
+  </nav>`;
 }
 
 const STYLES = `
@@ -246,40 +275,46 @@ const STYLES = `
   .dock {
     position: fixed;
     left: 50%;
-    bottom: 20px;
+    bottom: 18px;
     transform: translateX(-50%);
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: rgba(255,255,255,0.92);
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(255,255,255,0.95);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
     backdrop-filter: blur(12px);
+    z-index: 20;
   }
-  .dock span {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
+  .dock a {
     display: grid;
     place-items: center;
-    font-size: 0.85rem;
+    min-width: 72px;
+    padding: 8px 10px;
+    border-radius: var(--radius-pill);
+    text-decoration: none;
+    font-size: 0.75rem;
     color: var(--muted);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
   }
-  .dock span.active {
+  .dock a.active {
     background: #111;
     color: #fff;
   }
 `;
 
-function layout(title: string, content: string): string {
+function layout(title: string, content: string, opts: LayoutOpts = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} · ChatPay</title>
+  <title>${escapeHtml(title)} · Wayl</title>
   <style>${STYLES}</style>
 </head>
 <body>
@@ -291,7 +326,7 @@ function layout(title: string, content: string): string {
         </div>
         <div>
           <h1>Integrations</h1>
-          <div class="meta">ChatPay · Instagram messaging</div>
+          <div class="meta">Wayl · Instagram messaging</div>
         </div>
       </div>
       <a class="pill-btn accent" href="https://wayl.io" target="_blank" rel="noopener">Go to Store</a>
@@ -305,12 +340,7 @@ function layout(title: string, content: string): string {
     </div>
     ${content}
   </div>
-  <nav class="dock" aria-label="Quick navigation">
-    <span>Home</span>
-    <span class="active">Integrations</span>
-    <span>Alerts</span>
-    <span>Calendar</span>
-  </nav>
+  ${renderDock(opts)}
 </body>
 </html>`;
 }
@@ -318,24 +348,29 @@ function layout(title: string, content: string): string {
 export function renderConnectPage(opts: {
   loginUrl: string;
   storeLabel?: string;
+  storeId?: string;
 }): string {
   const storeLine = opts.storeLabel
     ? `<p class="meta" style="margin-top:-12px;margin-bottom:20px;">Store: <strong>${escapeHtml(opts.storeLabel)}</strong></p>`
     : '';
+  const inboxHref = opts.storeId
+    ? inboxAppUrl(opts.storeId)
+    : dashboardUrl(undefined, 'messages');
 
   return layout(
-    'Connect ChatPay Bot',
+    'Connect Instagram',
     `<section class="card hero-card">
       <div class="hero-icon" aria-hidden="true">IG</div>
       <h2>Connect Instagram</h2>
-      <p>Link your Instagram Professional account so ChatPay can read and send Direct Messages on behalf of your business.</p>
+      <p>Link your Instagram Professional account so Wayl can read and send Direct Messages on behalf of your business.</p>
       ${storeLine}
       <a class="btn-primary" href="${escapeHtml(opts.loginUrl)}">
         Connect Instagram
       </a>
       <br />
-      <a class="btn-secondary" href="/inbox">Open Messages</a>
+      <a class="btn-secondary" href="${escapeHtml(inboxHref)}">Open Messages</a>
     </section>`,
+    { storeId: opts.storeId, activeDock: 'manage' },
   );
 }
 
@@ -351,6 +386,7 @@ export function renderResultPage(opts: {
   subtitle: string;
   rows: DetailRow[];
   primaryAction?: { label: string; href: string };
+  storeId?: string;
 }): string {
   const rowsHtml = opts.rows
     .map(
@@ -372,11 +408,13 @@ export function renderResultPage(opts: {
       <ul class="detail-list">${rowsHtml}</ul>
       ${action}
     </section>`,
+    { storeId: opts.storeId, activeDock: 'manage' },
   );
 }
 
 export function renderSelectPage(opts: {
   pages: Array<{ href: string; pageName: string; igId: string }>;
+  storeId?: string;
 }): string {
   const tiles = opts.pages
     .map(
@@ -394,8 +432,9 @@ export function renderSelectPage(opts: {
       <h2 style="margin:0 0 8px;font-size:1.35rem;">Select Instagram Business account</h2>
       <p style="margin:0;color:var(--muted);">Choose the Facebook Page linked to the Instagram account ChatPay should manage.</p>
       <div class="page-grid">${tiles}</div>
-      <p style="margin-top:24px;"><a class="btn-secondary" href="/inbox">Back to Messages</a></p>
+      <p style="margin-top:24px;"><a class="btn-secondary" href="${escapeHtml(opts.storeId ? inboxAppUrl(opts.storeId) : dashboardUrl(undefined, 'messages'))}">Back to Messages</a></p>
     </section>`,
+    { storeId: opts.storeId, activeDock: 'manage' },
   );
 }
 
@@ -404,6 +443,7 @@ export function renderErrorPage(opts: {
   message: string;
   hintHtml?: string;
   retryHref?: string;
+  storeId?: string;
 }): string {
   const retryHref = opts.retryHref || '/oauth.php';
   return layout(
@@ -415,5 +455,6 @@ export function renderErrorPage(opts: {
       ${opts.hintHtml ?? ''}
       <a class="btn-primary" href="${escapeHtml(retryHref)}">Try again</a>
     </section>`,
+    { storeId: opts.storeId, activeDock: 'manage' },
   );
 }
